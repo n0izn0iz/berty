@@ -379,7 +379,6 @@ export const Navigation: React.FC = () => {
 				component={Stories.Main.ListModal}
 				options={{
 					stackPresentation: 'transparentModal',
-					contentStyle: { backgroundColor: 'transparent' },
 				}}
 			/>
 			<NavigationStack.Screen

@@ -11,12 +11,12 @@ import {
 import { Text, Icon } from 'react-native-ui-kitten'
 import { useStyles } from '@berty-tech/styles'
 import { BlurView } from '@react-native-community/blur'
-import { SDTSModalComponent } from '../shared-components/SDTSModalComponent'
 import { ProceduralCircleAvatar } from '../shared-components/ProceduralCircleAvatar'
 import { useNavigation, Routes } from '@berty-tech/berty-navigation'
 import { Chat } from '@berty-tech/hooks'
 import { chat } from '@berty-tech/store'
 import { CommonActions } from '@react-navigation/core'
+import MainModal from './MainModal'
 
 const useStylesList = () => {
 	const [
@@ -188,56 +188,59 @@ const NewGroup: React.FC<{}> = () => <View />
 
 const Screen = Dimensions.get('window')
 
-export const ListModal: React.FC<{}> = () => {
-	const firstNotToggledPoint = Screen.height - 193 + 16 + 35
-	const firstToggledPoint = firstNotToggledPoint
-
-	const secondNotToggledPoint = firstToggledPoint - 200
-	const secondToggledPoint = secondNotToggledPoint - 163 + 20
-
-	const thirdNotToggledPoint = secondToggledPoint - 200
-	const thirdToggledPoint = thirdNotToggledPoint - 283 + 20
+export const ListModal: React.FC = () => {
 	const navigation = useNavigation()
-	const [{ absolute, color }] = useStyles()
-
 	return (
-		<>
-			<TouchableWithoutFeedback onPress={navigation.goBack} style={[StyleSheet.absoluteFill]}>
-				<BlurView style={StyleSheet.absoluteFill} blurType='light' />
-			</TouchableWithoutFeedback>
-			<SafeAreaView style={[absolute.fill]}>
-				<SDTSModalComponent
-					rows={[
-						{
-							toggledPoint: firstToggledPoint,
-							notToggledPoint: firstNotToggledPoint,
-							title: 'New group',
-							icon: 'people-outline',
-							iconColor: color.black,
-							dragEnabled: false,
-							headerAction: navigation.navigate.main.createGroup.createGroup2,
-						},
-						{
-							toggledPoint: secondToggledPoint,
-							notToggledPoint: secondNotToggledPoint,
-							title: 'Add contact',
-							icon: 'person-add-outline',
-							iconColor: color.black,
-						},
-						{
-							toggledPoint: thirdToggledPoint,
-							notToggledPoint: thirdNotToggledPoint,
-							title: 'Requests sent',
-							icon: 'paper-plane-outline',
-							iconColor: color.black,
-						},
-					]}
-				>
-					<NewGroup />
-					<AddContact />
-					<Requests />
-				</SDTSModalComponent>
-			</SafeAreaView>
-		</>
+		<MainModal
+			items={[
+				{
+					header: (
+						<View style={{ borderColor: 'black', borderWidth: 1 }}>
+							<Text
+								style={{
+									textAlign: 'center',
+									borderBottomColor: 'black',
+									borderBottomWidth: 1,
+								}}
+							>
+								Add contact
+							</Text>
+						</View>
+					),
+					content: <AddContact />,
+					contentHeight: 400,
+				},
+				{
+					header: (
+						<View style={{ borderColor: 'black', borderWidth: 1 }}>
+							<Text
+								style={{
+									textAlign: 'center',
+								}}
+							>
+								Requests
+							</Text>
+						</View>
+					),
+					content: <Requests />,
+					contentHeight: 400,
+				},
+				{
+					header: (
+						<View style={{ borderColor: 'black', borderWidth: 1 }}>
+							<Text
+								style={{ textAlign: 'center', borderBottomColor: 'black', borderBottomWidth: 1 }}
+							>
+								New group
+							</Text>
+						</View>
+					),
+					content: null,
+					contentHeight: 0,
+					onPress: navigation.navigate.main.createGroup.createGroup2,
+				},
+			]}
+			closeModal={navigation.goBack}
+		/>
 	)
 }
