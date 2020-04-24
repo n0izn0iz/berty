@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package berty.protocol;
+
+import "bertytypes.proto";
+
+option go_package = "berty.tech/berty/go/pkg/bertyprotocol";
+
+// ProtocolService is the top-level API to manage an instance of the Berty Protocol.
+// Each Berty Protocol Instance is considered as a Berty device and is associated with a Berty user.
+service ProtocolService {
+  // InstanceExportData exports instance data
+  rpc InstanceExportData (types.InstanceExportData.Request) returns (types.InstanceExportData.Reply);
+
+  // InstanceGetConfiguration gets current configuration of this protocol instance
+  rpc InstanceGetConfiguration (types.InstanceGetConfiguration.Request) returns (types.InstanceGetConfiguration.Reply);
+
+  // ContactRequestReference retrieves the information required to create a reference (types.ie. included in a shareable link) to the current account
+  rpc ContactRequestReference (types.ContactRequestReference.Request) returns (types.ContactRequestReference.Reply);
+
+  // ContactRequestDisable disables incoming contact requests
+  rpc ContactRequestDisable (types.ContactRequestDisable.Request) returns (types.ContactRequestDisable.Reply);
+
+  // ContactRequestEnable enables incoming contact requests
+  rpc ContactRequestEnable (types.ContactRequestEnable.Request) returns (types.ContactRequestEnable.Reply);
+
+  // ContactRequestResetReference changes the contact request reference
+  rpc ContactRequestResetReference (types.ContactRequestResetReference.Request) returns (types.ContactRequestResetReference.Reply);
+
+  // ContactRequestSend attempt to send a contact request
+  rpc ContactRequestSend (types.ContactRequestSend.Request) returns (types.ContactRequestSend.Reply);
+
+  // ContactRequestAccept accepts a contact request
+  rpc ContactRequestAccept (types.ContactRequestAccept.Request) returns (types.ContactRequestAccept.Reply);
+
+  // ContactRequestDiscard ignores a contact request, without informing the other user
+  rpc ContactRequestDiscard (types.ContactRequestDiscard.Request) returns (types.ContactRequestDiscard.Reply);
+
+  // ContactBlock blocks a contact from sending requests
+  rpc ContactBlock (types.ContactBlock.Request) returns (types.ContactBlock.Reply);
+
+  // ContactUnblock unblocks a contact from sending requests
+  rpc ContactUnblock (types.ContactUnblock.Request) returns (types.ContactUnblock.Reply);
+
+  // ContactAliasKeySend send an alias key to a contact, the contact will be able to assert that your account is being present on a multi-member group
+  rpc ContactAliasKeySend (types.ContactAliasKeySend.Request) returns (types.ContactAliasKeySend.Reply);
+
+  // MultiMemberGroupCreate creates a new multi-member group
+  rpc MultiMemberGroupCreate (types.MultiMemberGroupCreate.Request) returns (types.MultiMemberGroupCreate.Reply);
+
+  // MultiMemberGroupJoin joins a multi-member group
+  rpc MultiMemberGroupJoin (types.MultiMemberGroupJoin.Request) returns (types.MultiMemberGroupJoin.Reply);
+
+  // MultiMemberGroupLeave leaves a multi-member group
+  rpc MultiMemberGroupLeave (types.MultiMemberGroupLeave.Request) returns (types.MultiMemberGroupLeave.Reply);
+
+  // MultiMemberGroupAliasResolverDisclose discloses your alias resolver key
+  rpc MultiMemberGroupAliasResolverDisclose (types.MultiMemberGroupAliasResolverDisclose.Request) returns (types.MultiMemberGroupAliasResolverDisclose.Reply);
+
+  // MultiMemberGroupAdminRoleGrant grants an admin role to a group member
+  rpc MultiMemberGroupAdminRoleGrant (types.MultiMemberGroupAdminRoleGrant.Request) returns (types.MultiMemberGroupAdminRoleGrant.Reply);
+
+  // MultiMemberGroupInvitationCreate creates an invitation to a multi-member group
+  rpc MultiMemberGroupInvitationCreate (types.MultiMemberGroupInvitationCreate.Request) returns (types.MultiMemberGroupInvitationCreate.Reply);
+
+  // AppMetadataSend adds an app event to the metadata store, the message is encrypted using a symmetric key and readable by future group members
+  rpc AppMetadataSend (types.AppMetadataSend.Request) returns (types.AppMetadataSend.Reply);
+
+  // AppMessageSend adds an app event to the message store, the message is encrypted using a derived key and readable by current group members
+  rpc AppMessageSend (types.AppMessageSend.Request) returns (types.AppMessageSend.Reply);
+
+  // GroupMetadataSubscribe subscribes to a group metadata updates (types.or it can also retrieve the history)
+  rpc GroupMetadataSubscribe (types.GroupMetadataSubscribe.Request) returns (stream types.GroupMetadataEvent);
+
+  // GroupMessageSubscribe subscribes to a group message updates (types.or it can also retrieve the history)
+  rpc GroupMessageSubscribe (types.GroupMessageSubscribe.Request) returns (stream types.GroupMessageEvent);
+
+  // GroupMetadataList replays metadata events from the group
+  rpc GroupMetadataList (types.GroupMetadataList.Request) returns (stream types.GroupMetadataEvent);
+
+  // GroupMessageList replays message  events from the group
+  rpc GroupMessageList (types.GroupMessageList.Request) returns (stream types.GroupMessageEvent);
+
+  // GroupInfo retrieves information about a group
+  rpc GroupInfo (types.GroupInfo.Request) returns (types.GroupInfo.Reply);
+
+  // ActivateGroup explicitly opens a group, groups are automatically enabled when actions are performed on them
+  rpc ActivateGroup (types.ActivateGroup.Request) returns (types.ActivateGroup.Reply);
+
+  // DeactivateGroup closes a group
+  rpc DeactivateGroup (types.DeactivateGroup.Request) returns (types.DeactivateGroup.Reply);
+}

@@ -1,0 +1,29 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Collapse vendored files on GitHub
+vendor/* linguist-vendored
+*/vendor/* linguist-vendored
+client/common/openssl/built/* linguist-vendored
+
+# Collapse generated files on GitHub
+*.gen.go linguist-generated
+*.gen.graphql linguist-generated
+*.gen.js linguist-generated
+*.gen.ts linguist-generated
+*.gen.tsx linguist-generated
+*.gen.yml linguist-generated
+*.pb.d.ts linguist-generated
+*.pb.go linguist-generated
+*.pb.js linguist-generated
+*pb_test.go linguist-generated
+docs/*/api.md linguist-generated
+gen.sum linguist-generated
+go.mod linguist-generated
+go.sum linguist-generated
+yarn.lock linguist-generated
+package.json linguist-generated
+Podfile.lock linguist-generated
+
+# Reduce conflicts on markdown files
+*.md merge=union

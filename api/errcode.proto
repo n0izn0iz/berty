@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package berty.errcode;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option go_package = "berty.tech/berty/go/pkg/errcode";
+
+option (gogoproto.goproto_enum_prefix_all) = false;
+
+enum ErrCode {
+  //----------------
+  // Special errors
+  //----------------
+
+  Undefined = 0; // default value, should never be set manually
+
+  TODO = 666; // indicates that you plan to create an error later
+  ErrNotImplemented = 777; // indicates that a method is not implemented yet
+  ErrInternal = 888; // indicates an unknown error (without Code), i.e. in gRPC
+
+  //----------------
+  // Generic errors
+  //----------------
+
+  // Parameters and I/O errors
+
+  ErrInvalidInput = 100;
+  ErrMissingInput = 101;
+  ErrSerialization = 102;
+  ErrDeserialization = 103;
+  ErrStreamRead = 104;
+  ErrStreamWrite = 105;
+  ErrMissingMapKey = 106;
+
+  // Crypto errors
+
+  ErrCryptoRandomGeneration = 200;
+  ErrCryptoKeyGeneration = 201;
+  ErrCryptoNonceGeneration = 202;
+  ErrCryptoSignature = 203;
+  ErrCryptoSignatureVerification = 204;
+  ErrCryptoDecrypt = 205;
+  ErrCryptoEncrypt = 206;
+  ErrCryptoKeyConversion = 207;
+
+  //-----------------
+  // Specific errors
+  //-----------------
+
+  // OrbitDB errors
+
+  ErrOrbitDBInit = 1000;
+  ErrOrbitDBOpen = 1001;
+  ErrOrbitDBAppend = 1002;
+  ErrOrbitDBDeserialization = 1003;
+  ErrOrbitDBStoreCast = 1004;
+
+  // Handshake errors
+
+  ErrHandshakeOwnEphemeralKeyGenSend = 1100;
+  ErrHandshakePeerEphemeralKeyRecv = 1101;
+  ErrHandshakeRequesterAuthenticateBoxKeyGen = 1102;
+  ErrHandshakeResponderAcceptBoxKeyGen = 1103;
+  ErrHandshakeRequesterHello = 1104;
+  ErrHandshakeResponderHello = 1105;
+  ErrHandshakeRequesterAuthenticate = 1106;
+  ErrHandshakeResponderAccept = 1107;
+  ErrHandshakeRequesterAcknowledge = 1108;
+
+  // Group errors
+
+  ErrGroupMemberLogEventOpen = 1200;
+  ErrGroupMemberLogEventSignature = 1201;
+  ErrGroupMemberUnknownGroupID = 1202;
+  ErrGroupSecretOtherDestMember = 1203;
+  ErrGroupSecretAlreadySentToMember = 1204;
+  ErrGroupInvalidType = 1205;
+  ErrGroupMissing = 1206;
+
+  // Message key errors
+
+  ErrMessageKeyPersistencePut = 1300;
+  ErrMessageKeyPersistenceGet = 1301;
+
+  // Bridge errors
+
+  ErrBridgeInterrupted = 1400;
+  ErrBridgeNotRunning = 1401;
+}

@@ -1,0 +1,16 @@
+out/
+gen.sum.tmp
+profile.out
+*#
+*~
+.#*
+.DS_Store
+.agignore
+.env
+coverage.txt
+.projectile
+core-sources.jar
+gin-bin
+google-services.json
+vendor/
+/bazel-*
