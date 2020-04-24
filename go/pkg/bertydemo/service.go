@@ -5,7 +5,7 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	fmt "fmt"
+	"fmt"
 	"sync"
 	"time"
 
@@ -113,7 +113,7 @@ func (s *Service) logFromToken(ctx context.Context, token string) (orbitdb.Event
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
-	log, err := s.odb.Log(ctx, "DemoLog", opts)
+	log, err := s.odb.Log(context.Background(), "DemoLog", opts)
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
@@ -138,12 +138,12 @@ func operationCidString(op operation.Operation) string {
 }
 
 func (s *Service) LogAdd(ctx context.Context, req *LogAdd_Request) (*LogAdd_Reply, error) {
-	log, err := s.logFromToken(ctx, req.GetLogToken())
+	log, err := s.logFromToken(context.Background(), req.GetLogToken())
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
 
-	op, err := log.Add(ctx, req.GetData())
+	op, err := log.Add(context.Background(), req.GetData())
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
@@ -207,14 +207,16 @@ func decodeStreamOptions(opts *LogStreamOptions) *orbitdb.StreamOptions {
 }
 
 func (s *Service) LogList(ctx context.Context, req *LogList_Request) (*LogList_Reply, error) {
-	log, err := s.logFromToken(ctx, req.GetLogToken())
+	log, err := s.logFromToken(context.Background(), req.GetLogToken())
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
 
-	opts := decodeStreamOptions(req.GetOptions())
+	log.Load(context.Background(), -1)
 
-	ops, err := log.List(ctx, opts)
+	opts := &orbitdb.StreamOptions{Amount: intPtr(-1)}
+
+	ops, err := log.List(context.Background(), opts)
 	if err != nil {
 		return nil, errcode.TODO.Wrap(err)
 	}
