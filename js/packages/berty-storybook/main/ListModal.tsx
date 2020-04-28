@@ -188,52 +188,93 @@ const NewGroup: React.FC<{}> = () => <View />
 
 const Screen = Dimensions.get('window')
 
+const Header: React.FC<{
+	title: string
+	icon: string
+	iconPack?: string
+	first?: boolean
+	disabled?: boolean
+}> = ({ title, icon, iconPack, disabled = false }) => {
+	const [
+		{ height, border, margin, row, padding, text, column, color, background, opacity },
+	] = useStyles()
+	return (
+		<View
+			style={[
+				background.white,
+				border.radius.top.scale(30),
+				{
+					shadowRadius: 8,
+					shadowOffset: { height: -8 },
+					shadowOpacity: 0.1,
+				},
+				disabled && opacity(0.5),
+			]}
+		>
+			<View style={[height(80)]}>
+				<View
+					style={[
+						margin.top.small,
+						row.item.justify,
+						border.scale(2.5),
+						border.color.light.grey,
+						,
+						border.radius.scale(4),
+						{
+							backgroundColor: '#E8E9FC',
+							width: '14%',
+						},
+					]}
+				/>
+				<View>
+					<View
+						style={[row.fill, padding.horizontal.medium, padding.bottom.medium, padding.top.small]}
+					>
+						<Text
+							style={[text.bold.medium, text.size.scale(20), text.color.black, column.item.center]}
+						>
+							{title}
+						</Text>
+						{icon && <Icon name={icon} pack={iconPack} width={30} height={30} fill={color.black} />}
+					</View>
+				</View>
+			</View>
+		</View>
+	)
+}
+
 export const ListModal: React.FC = () => {
 	const navigation = useNavigation()
 	return (
 		<MainModal
-			blurAmount={2}
-			easing="ease-in-out"
+			blurAmount={10}
+			easing='ease-in-out'
 			duration={300}
 			items={[
 				{
 					header: (
-						<View style={{ borderColor: 'black', borderWidth: 1 }}>
-							<Text
-								style={{
-									textAlign: 'center',
-									borderBottomColor: 'black',
-									borderBottomWidth: 1,
-								}}
-							>
-								Add contact
-							</Text>
+						<View>
+							<Header title='Add contact' icon='people-outline' />
 						</View>
 					),
 					content: <AddContact />,
 				},
 				{
 					header: (
-						<View style={{ borderColor: 'black', borderWidth: 1 }}>
-							<Text
-								style={{
-									textAlign: 'center',
-								}}
-							>
-								Requests
-							</Text>
+						<View>
+							<Header title='Requests' icon='people-outline' />
 						</View>
 					),
-					content: <Requests />,
+					content: (
+						<View style={{ height: 400 }}>
+							<Text>No requests</Text>
+						</View>
+					),
 				},
 				{
 					header: (
-						<View style={{ borderColor: 'black', borderWidth: 1 }}>
-							<Text
-								style={{ textAlign: 'center', borderBottomColor: 'black', borderBottomWidth: 1 }}
-							>
-								New group
-							</Text>
+						<View>
+							<Header disabled title='New Group' icon='people-outline' />
 						</View>
 					),
 					onPress: navigation.navigate.main.createGroup.createGroup2,
