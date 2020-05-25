@@ -92,6 +92,12 @@ class GoBridge: NSObject {
                     try FileManager.default.createDirectory(atPath: self.rootdir.path, withIntermediateDirectories: true, attributes: nil)
                 }
 
+                let storePath = self.rootdir.appendingPathComponent("store", isDirectory: true)
+                let exist2 = FileManager.default.fileExists(atPath: storePath.path, isDirectory: &isDirectory)
+                if !exist2 {
+                    try FileManager.default.createDirectory(atPath: storePath.path, withIntermediateDirectories: true, attributes: nil)
+                }
+
                 NSLog("root dir: `%@`", self.rootdir.path)
                 config.rootDirectory(self.rootdir.path)
             }
