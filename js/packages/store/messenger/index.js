@@ -1,6 +1,6 @@
 import { combineReducers } from 'redux'
 import { configureStore } from '@reduxjs/toolkit'
-import { call, take, race, delay, select, fork, put } from 'redux-saga/effects'
+import { call, take, race, delay, fork, put } from 'redux-saga/effects'
 import createSagaMiddleware from 'redux-saga'
 import createRecorder from 'redux-test-recorder'
 import mem from 'mem'
@@ -9,8 +9,8 @@ import { persistReducer, persistStore } from 'redux-persist'
 
 import * as protocol from '../protocol'
 import * as settings from '../settings'
-import * as account from './account'
-import * as contact from './contact'
+import account from './account'
+import contact from './contact'
 import * as conversation from './conversation'
 import * as message from './message'
 import * as groups from '../groups'
@@ -32,10 +32,10 @@ export const reducers = {
 }
 
 function* initApp() {
-	let acc = yield select(account.queries.get)
+	let acc = yield* account.sq.get()
 	if (!acc) {
 		yield take(account.events.created)
-		acc = yield select(account.queries.get)
+		acc = yield* account.sq.get()
 	}
 	yield* protocol.transactions.client.start({ name: acc.name })
 	yield* account.transactions.open()
