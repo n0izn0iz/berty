@@ -71,6 +71,7 @@ export default ({
 	)) {
 		if (typeof cmd === 'function') {
 			commandsTxs[key] = cmd
+			commandsReducers[key] = (state) => state
 			continue
 		}
 		if (
@@ -116,6 +117,8 @@ export default ({
 	const reducer = allowReducedCommands
 		? composeReducers(commandsSlice.reducer, eventsSlice.reducer)
 		: eventsSlice.reducer
+
+	console.log(name, 'commands:', commands)
 
 	// ret
 	return {

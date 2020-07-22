@@ -125,6 +125,9 @@ const commands = ({ sq, events }) => ({
 				const error = new Error('Corrupted deep link.').toString()
 				yield put(events.handleDeepLinkError({ link: url, error }))
 			} else {
+				if (__DEV__) {
+					console.error(e) // to get stack trace in dev
+				}
 				yield put(events.handleDeepLinkError({ link: url, error: e.toString() }))
 			}
 		}

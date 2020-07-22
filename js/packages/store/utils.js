@@ -16,7 +16,7 @@ export function makeDefaultReducers(names) {
 export function makeDefaultCommandsSagas(commands, transactions) {
 	return Object.keys(commands).map((commandName) =>
 		takeEvery(commands[commandName], function* (action) {
-			return yield* transactions[commandName](action.payload)
+			return yield* transactions[commandName](action ? action.payload : undefined)
 		}),
 	)
 }
