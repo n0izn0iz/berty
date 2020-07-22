@@ -1,10 +1,8 @@
-import { createSlice } from '@reduxjs/toolkit'
-import { composeReducers } from 'redux-compose'
-import { all, select, takeEvery, put, call, take } from 'redux-saga/effects'
+import { select, takeEvery, put, call, take } from 'redux-saga/effects'
 import * as protocol from '../protocol'
 import { berty } from '@berty-tech/api'
 import { AppMessageType } from './AppMessage'
-import { makeDefaultCommandsSagas, strToBuf, bufToStr, bufToJSON, createCommands } from '../utils'
+import { strToBuf, bufToStr, bufToJSON } from '../utils'
 import { commands as groupsCommands } from '../groups'
 import {
 	ConversationKind,
@@ -12,141 +10,247 @@ import {
 	queries as conversationQueries,
 	events as conversationEvents,
 } from './conversation'
+import createSagaSlice from '../createSagaSlice'
 
-export const ContactRequestType = {
+const ContactRequestType = {
 	Incoming: 'Incoming',
 	Outgoing: 'Outgoing',
 }
 
-const initialState = {
-	entities: {},
+const queries = {
+	list: (state) => Object.values(state.messenger.contact.entities),
+	get: (state, { id }) => state.messenger.contact.entities[id],
+	getRequestDraft: (state) => state.messenger.contact.requestDraft,
+	getLength: (state) => queries.list(state).length,
+	search: (state, { searchText }) =>
+		searchText
+			? queries
+					.list(state)
+					.filter((contact) => contact.name.toLowerCase().includes(searchText.toLowerCase()))
+			: [],
+	getWithId: (state, { contactPk }) => state.messenger.contact.entities[bufToStr(contactPk)],
 }
 
-const commandsSlice = createCommands('messenger/contact/command', initialState, [
-	'acceptRequest',
-	'discardRequest',
-	'delete',
-	'deleteAll',
-	'initiateRequest',
-])
+const events = {
+	deleted: (state, { payload: { contactPk } }) => {
+		delete state.entities[contactPk]
+		return state
+	},
+	outgoingContactRequestAccepted: (state, { payload: { contactPk } }) => {
+		const contact = state.entities[contactPk]
+		if (contact && contact.request.type === ContactRequestType.Outgoing) {
+			contact.request.accepted = true
+		}
+		return state
+	},
+	outgoingContactRequestEnqueued: (state, { payload }) => {
+		const { contactPk, groupPk, metadata, addedDate, uid } = payload
+		if (!contactPk) {
+			return state
+		}
+		if (!state.entities[contactPk]) {
+			state.entities[contactPk] = {
+				id: contactPk,
+				name: metadata.name,
+				publicKey: contactPk,
+				groupPk,
+				request: {
+					type: ContactRequestType.Outgoing,
+					accepted: false,
+					discarded: false,
+					state: 'enqueued',
+					uid,
+				},
+				addedDate,
+			}
+		}
+		return state
+	},
+	outgoingContactRequestSent: (state, { payload: { id, date, groupPk } }) => {
+		const contact = state.entities[id]
+		if (!contact || contact.request.type !== ContactRequestType.Outgoing) {
+			return state
+		}
+		contact.request = { ...contact.request, state: 'sent', sentDate: date }
+		if (!contact.groupPk) {
+			contact.groupPk = groupPk
+		}
+		return state
+	},
+	created: (state, { payload }) => {
+		const { id } = payload
+		if (!state.entities[id]) {
+			state.entities[id] = payload
+		}
+		return state
+	},
+	requestInitiated: (state, { payload: { bertyId, error, now } }) => {
+		try {
+			if (!bertyId || error) {
+				throw error || new Error('Unknown.')
+			}
+			if (!(bertyId.accountPk && bertyId.publicRendezvousSeed)) {
+				throw new Error('Invalid payload.')
+			}
+			const contactPk = bufToStr(bertyId.accountPk)
+			if (state.entities[contactPk]) {
+				throw new Error('Contact already added.')
+			}
+			const name = bertyId.displayName || 'anon#1337'
+			state.requestDraft = {
+				contactId: contactPk,
+				contactName: name,
+				contactRdvSeed: bufToStr(bertyId.publicRendezvousSeed),
+				contactPublicKey: contactPk,
+			}
+			state.entities[contactPk] = {
+				id: contactPk,
+				name,
+				publicKey: contactPk,
+				request: {
+					type: ContactRequestType.Outgoing,
+					accepted: false,
+					discarded: false,
+					state: 'initiated',
+				},
+				addedDate: now,
+			}
+		} catch (e) {
+			state.requestDraft = {
+				error: e.toString(),
+			}
+		}
+		return state
+	},
+	draftReset: (state) => {
+		delete state.requestDraft
+		return state
+	},
+	incomingContactRequestAccepted: (state, action) => {
+		const {
+			payload: { contactPk, groupPk },
+		} = action
+		const contact = state.entities[contactPk]
+		if (contact && contact.request.type === ContactRequestType.Incoming) {
+			contact.request.accepted = true
+			contact.groupPk = groupPk
+		}
+		return state
+	},
+	requestAccepted: (state, { payload }) => {
+		const contact = state.entities[payload.id]
+		if (contact) {
+			contact.request.accepted = true
+		}
+		return state
+	},
+}
 
-const eventHandler = createSlice({
-	name: 'messenger/contact/event',
-	initialState,
-	reducers: {
-		deleted: (state, { payload: { contactPk } }) => {
-			delete state.entities[contactPk]
-			return state
-		},
-		outgoingContactRequestAccepted: (state, { payload: { contactPk } }) => {
-			const contact = state.entities[contactPk]
-			if (contact && contact.request.type === ContactRequestType.Outgoing) {
-				contact.request.accepted = true
+export default createSagaSlice({
+	name: 'contact',
+	path: 'messenger',
+	queries,
+	events,
+	initialState: {
+		entities: {},
+	},
+	exports: {
+		ContactRequestType,
+	},
+	commands: ({ sq, transactions }) => ({
+		delete: function* ({ id }) {
+			const contact = yield* getContact(id)
+			if (contact) {
+				const groupPk = yield* contactPkToGroupPk({ contactPk: contact.publicKey })
+				if (groupPk) {
+					const gpkStr = bufToStr(groupPk)
+					if (gpkStr) {
+						yield put(
+							groupsCommands.unsubscribe({
+								publicKey: gpkStr,
+								metadata: true,
+								messages: true,
+							}),
+						)
+					}
+				}
+				const convs = yield select((state) => conversationQueries.list(state))
+				const idsToDelete = convs
+					.filter((c) => c.kind === ConversationKind.OneToOne && c.contactId === id)
+					.map((c) => c.id)
+				for (const i of idsToDelete) {
+					yield call(conversationTransactions.delete, { id: i })
+				}
+				yield put(events.deleted({ contactPk: contact.publicKey }))
 			}
-			return state
 		},
-		outgoingContactRequestEnqueued: (state, { payload }) => {
-			const { contactPk, groupPk, metadata, addedDate, uid } = payload
-			if (!contactPk) {
-				return state
+		acceptRequest: function* ({ id }) {
+			const contact = yield* sq.get({ id })
+			if (!contact) {
+				return
 			}
-			if (!state.entities[contactPk]) {
-				state.entities[contactPk] = {
-					id: contactPk,
-					name: metadata.name,
-					publicKey: contactPk,
-					groupPk,
-					request: {
-						type: ContactRequestType.Outgoing,
-						accepted: false,
-						discarded: false,
-						state: 'enqueued',
-						uid,
-					},
-					addedDate,
+			yield put(
+				protocol.commands.client.contactRequestAccept({
+					contactPk: strToBuf(contact.publicKey),
+				}),
+			)
+		},
+		discardRequest: function* ({ id }) {
+			const contact = yield select((state: GlobalState) => queries.get(state, { id }))
+			if (!contact) {
+				return
+			}
+			const contactPk = strToBuf(contact.publicKey)
+			yield call(protocol.client.transactions.contactBlock, { contactPk })
+			while (true) {
+				const { payload } = yield take(events.deleted)
+				if (payload.contactPk === contact.publicKey) {
+					yield call(protocol.client.transactions.contactUnblock, { contactPk })
+					break
 				}
 			}
-			return state
 		},
-		outgoingContactRequestSent: (state, { payload: { id, date, groupPk } }) => {
-			const contact = state.entities[id]
-			if (!contact || contact.request.type !== ContactRequestType.Outgoing) {
-				return state
+		deleteAll: function* () {
+			const contacts = yield select(queries.list)
+			for (const contact of contacts) {
+				yield* transactions.delete({ id: contact.id })
 			}
-			contact.request = { ...contact.request, state: 'sent', sentDate: date }
-			if (!contact.groupPk) {
-				contact.groupPk = groupPk
-			}
-			return state
 		},
-		created: (state, { payload }) => {
-			const { id } = payload
-			if (!state.entities[id]) {
-				state.entities[id] = payload
-			}
-			return state
-		},
-		requestInitiated: (state, { payload: { bertyId, error, now } }) => {
+		initiateRequest: function* ({ url }) {
 			try {
-				if (!bertyId || error) {
-					throw error || new Error('Unknown.')
+				const data = yield call(protocol.client.transactions.parseDeepLink, {
+					link: url,
+				})
+				if (!(data && data.bertyId && data.bertyId.accountPk)) {
+					throw new Error('Internal: Invalid node response.')
 				}
-				if (!(bertyId.accountPk && bertyId.publicRendezvousSeed)) {
-					throw new Error('Invalid payload.')
+				const client = yield select(protocol.queries.client.get)
+				if (!client) {
+					return
 				}
-				const contactPk = bufToStr(bertyId.accountPk)
-				if (state.entities[contactPk]) {
+				const contactPk = bufToStr(data.bertyId.accountPk)
+				if (contactPk === client.accountPk) {
+					throw new Error("Can't send a contact request to yourself.")
+				}
+				const contacts = yield select((state) => queries.list(state))
+				if (contacts.find((c) => c.publicKey === contactPk)) {
 					throw new Error('Contact already added.')
 				}
-				const name = bertyId.displayName || 'anon#1337'
-				state.requestDraft = {
-					contactId: contactPk,
-					contactName: name,
-					contactRdvSeed: bufToStr(bertyId.publicRendezvousSeed),
-					contactPublicKey: contactPk,
-				}
-				state.entities[contactPk] = {
-					id: contactPk,
-					name,
-					publicKey: contactPk,
-					request: {
-						type: ContactRequestType.Outgoing,
-						accepted: false,
-						discarded: false,
-						state: 'initiated',
-					},
-					addedDate: now,
-				}
+				yield put(events.requestInitiated({ bertyId: data.bertyId, now: Date.now() }))
 			} catch (e) {
-				state.requestDraft = {
-					error: e.toString(),
+				if (e.name === 'GRPCError') {
+					yield put(
+						events.requestInitiated({
+							error: new Error('Corrupted deep link.'),
+							now: Date.now(),
+						}),
+					)
+				} else {
+					yield put(events.requestInitiated({ error: e.toString(), now: Date.now() }))
 				}
 			}
-			return state
 		},
-		draftReset: (state) => {
-			delete state.requestDraft
-			return state
-		},
-		incomingContactRequestAccepted: (state, action) => {
-			const {
-				payload: { contactPk, groupPk },
-			} = action
-			const contact = state.entities[contactPk]
-			if (contact && contact.request.type === ContactRequestType.Incoming) {
-				contact.request.accepted = true
-				contact.groupPk = groupPk
-			}
-			return state
-		},
-		requestAccepted: (state, { payload }) => {
-			const contact = state.entities[payload.id]
-			if (contact) {
-				contact.request.accepted = true
-			}
-			return state
-		},
-	},
+	}),
 	extraReducers: {
 		[protocol.events.client.accountContactRequestIncomingDiscarded.type]: (state, { payload }) => {
 			const {
@@ -163,145 +267,7 @@ const eventHandler = createSlice({
 			return state
 		},
 	},
-})
-
-export const reducer = composeReducers(commandsSlice.reducer, eventHandler.reducer)
-export const commands = commandsSlice.actions
-export const events = eventHandler.actions
-export const queries = {
-	list: (state) => Object.values(state.messenger.contact.entities),
-	get: (state, { id }) => state.messenger.contact.entities[id],
-	getRequestDraft: (state) => state.messenger.contact.requestDraft,
-	getLength: (state) => queries.list(state).length,
-	search: (state, { searchText }) =>
-		searchText
-			? queries
-					.list(state)
-					.filter((contact) => contact.name.toLowerCase().includes(searchText.toLowerCase()))
-			: [],
-	getWithId: (state, { contactPk }) => state.messenger.contact.entities[bufToStr(contactPk)],
-}
-
-export const transactions = {
-	delete: function* ({ id }) {
-		const contact = yield* getContact(id)
-		if (contact) {
-			const groupPk = yield* contactPkToGroupPk({ contactPk: contact.publicKey })
-			if (groupPk) {
-				const gpkStr = bufToStr(groupPk)
-				if (gpkStr) {
-					yield put(
-						groupsCommands.unsubscribe({
-							publicKey: gpkStr,
-							metadata: true,
-							messages: true,
-						}),
-					)
-				}
-			}
-			const convs = yield select((state) => conversationQueries.list(state))
-			const idsToDelete = convs
-				.filter((c) => c.kind === ConversationKind.OneToOne && c.contactId === id)
-				.map((c) => c.id)
-			for (const i of idsToDelete) {
-				yield call(conversationTransactions.delete, { id: i })
-			}
-			yield put(events.deleted({ contactPk: contact.publicKey }))
-		}
-	},
-	acceptRequest: function* ({ id }) {
-		const contact = yield select((state: GlobalState) => queries.get(state, { id }))
-		if (!contact) {
-			return
-		}
-		yield put(
-			protocol.commands.client.contactRequestAccept({
-				contactPk: strToBuf(contact.publicKey),
-			}),
-		)
-	},
-	discardRequest: function* ({ id }) {
-		const contact = yield select((state: GlobalState) => queries.get(state, { id }))
-		if (!contact) {
-			return
-		}
-		const contactPk = strToBuf(contact.publicKey)
-		yield call(protocol.client.transactions.contactBlock, { contactPk })
-		while (true) {
-			const { payload } = yield take(events.deleted)
-			if (payload.contactPk === contact.publicKey) {
-				yield call(protocol.client.transactions.contactUnblock, { contactPk })
-				break
-			}
-		}
-	},
-	deleteAll: function* () {
-		const contacts = yield select(queries.list)
-		for (const contact of contacts) {
-			yield* transactions.delete({ id: contact.id })
-		}
-	},
-	initiateRequest: function* ({ url }) {
-		try {
-			const data = yield call(protocol.client.transactions.parseDeepLink, {
-				link: url,
-			})
-			if (!(data && data.bertyId && data.bertyId.accountPk)) {
-				throw new Error('Internal: Invalid node response.')
-			}
-			const client = yield select(protocol.queries.client.get)
-			if (!client) {
-				return
-			}
-			const contactPk = bufToStr(data.bertyId.accountPk)
-			if (contactPk === client.accountPk) {
-				throw new Error("Can't send a contact request to yourself.")
-			}
-			const contacts = yield select((state) => queries.list(state))
-			if (contacts.find((c) => c.publicKey === contactPk)) {
-				throw new Error('Contact already added.')
-			}
-			yield put(events.requestInitiated({ bertyId: data.bertyId, now: Date.now() }))
-		} catch (e) {
-			if (e.name === 'GRPCError') {
-				yield put(
-					events.requestInitiated({
-						error: new Error('Corrupted deep link.'),
-						now: Date.now(),
-					}),
-				)
-			} else {
-				yield put(events.requestInitiated({ error: e.toString(), now: Date.now() }))
-			}
-		}
-	},
-}
-
-export function* getContact(id: string | Uint8Array) {
-	return yield select((state: GlobalState) =>
-		queries.get(state, { id: typeof id === 'string' ? id : bufToStr(id) }),
-	)
-}
-
-export function* contactPkToGroupPk({ contactPk }) {
-	try {
-		const groupInfo = yield call(protocol.transactions.client.groupInfo, {
-			contactPk: typeof contactPk === 'string' ? strToBuf(contactPk) : contactPk,
-		})
-		const { group } = groupInfo
-		if (!group) {
-			return
-		}
-		const { publicKey: groupPk } = group
-		return groupPk || undefined
-	} catch (e) {
-		console.warn(e)
-	}
-}
-
-export function* orchestrator() {
-	yield all([
-		...makeDefaultCommandsSagas(commands, transactions),
+	effects: ({ transactions }) => [
 		takeEvery(protocol.events.client.accountContactRequestOutgoingEnqueued, function* (action) {
 			const contactPk = action.payload.event.contact.pk
 			if (!contactPk) {
@@ -524,5 +490,27 @@ export function* orchestrator() {
 			} = payload
 			yield call(transactions.delete, { id: bufToStr(contactPk) })
 		}),
-	])
+	],
+})
+
+export function* getContact(id: string | Uint8Array) {
+	return yield select((state: GlobalState) =>
+		queries.get(state, { id: typeof id === 'string' ? id : bufToStr(id) }),
+	)
+}
+
+export function* contactPkToGroupPk({ contactPk }) {
+	try {
+		const groupInfo = yield call(protocol.transactions.client.groupInfo, {
+			contactPk: typeof contactPk === 'string' ? strToBuf(contactPk) : contactPk,
+		})
+		const { group } = groupInfo
+		if (!group) {
+			return
+		}
+		const { publicKey: groupPk } = group
+		return groupPk || undefined
+	} catch (e) {
+		console.warn(e)
+	}
 }

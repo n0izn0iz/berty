@@ -15,12 +15,7 @@ import {
 	transactions as groupsTransactions,
 	queries as groupsQueries,
 } from '../groups'
-import {
-	queries as contactQueries,
-	events as contactEvents,
-	contactPkToGroupPk,
-	ContactRequestMetadata,
-} from './contact'
+import contact from './contact'
 import { AppMessageType } from './AppMessage'
 
 import * as protocol from '../protocol'
@@ -341,7 +336,7 @@ export const transactions: Transactions = {
 		for (const member of members) {
 			let oneToOnePk = member.groupPk
 			if (!oneToOnePk) {
-				const pkbuf = yield* contactPkToGroupPk({ contactPk: member.publicKey })
+				const pkbuf = yield* contact.contactPkToGroupPk({ contactPk: member.publicKey })
 				oneToOnePk = pkbuf && bufToStr(pkbuf)
 			}
 			console.log('after create oneToOnePk', oneToOnePk)
@@ -393,16 +388,14 @@ export const transactions: Transactions = {
 		if (payload.kind !== ConversationKind.OneToOne) {
 			return
 		}
+
 		const group = yield select((state) => groupsQueries.get(state, { groupId: payload.pk }))
 		if (group) {
 			if (Object.keys(group.membersDevices).length > 1) {
-				const contact = yield select((state) =>
-					contactQueries.get(state, { id: payload.contactId }),
-				)
-				if (contact && !contact.request.accepted) {
-					yield put(contactEvents.requestAccepted({ id: contact.id }))
+				const c = yield* contact.sq.get({ id: payload.contactId })
+				if (c && !c.request.accepted) {
+					yield put(contact.events.requestAccepted({ id: contact.id }))
 				}
-				//
 			}
 		}
 

@@ -1,8 +1,7 @@
-import { createSlice } from '@reduxjs/toolkit'
-import { composeReducers } from 'redux-compose'
-import { put, all, select, call, take } from 'redux-saga/effects'
+import { put, select, call, take } from 'redux-saga/effects'
 import GoBridge from '@berty-tech/go-bridge'
-import { makeDefaultReducers, makeDefaultCommandsSagas, strToBuf, jsonToBuf } from '../utils'
+import { strToBuf, jsonToBuf } from '../utils'
+import createSagaSlice from '../createSagaSlice'
 
 import { commands as groupsCommands } from '../groups'
 import * as protocol from '../protocol'
@@ -12,74 +11,9 @@ import {
 	transactions as conversationTransactions,
 } from './conversation'
 
-import * as contact from './contact'
+import contact from './contact'
 
-const initialState = null
-
-const commandsSlice = createSlice({
-	name: 'messenger/account/command',
-	initialState,
-	// this is stupid but getting https://github.com/kimamula/ts-transformer-keys in might be a headache
-	// maybe move commands and events definitions in .protos
-	reducers: makeDefaultReducers([
-		'generate',
-		'create',
-		'delete',
-		'sendContactRequest',
-		'replay',
-		'open',
-		'onboard',
-		'handleDeepLink',
-	]),
-})
-
-const eventHandler = createSlice({
-	name: 'messenger/account/event',
-	initialState,
-	reducers: {
-		created: (state, { payload }) => {
-			if (!state) {
-				state = {
-					name: payload.name,
-					onboarded: false,
-				}
-			}
-			return state
-		},
-		deleted: () => {
-			return null
-		},
-		onboarded: (state) => {
-			if (state) {
-				state.onboarded = true
-			}
-			return state
-		},
-		unboarded: (state) => {
-			if (state) {
-				state.onboarded = false
-			}
-			return state
-		},
-		handleDeepLinkError: (state, { payload: { link, error } }) => {
-			if (state) {
-				state.deepLinkStatus = { link, error }
-			}
-			return state
-		},
-		handleDeepLinkDone: (state, { payload: { link, kind } }) => {
-			if (state) {
-				state.deepLinkStatus = { link, kind }
-			}
-			return state
-		},
-	},
-})
-
-export const reducer = composeReducers(commandsSlice.reducer, eventHandler.reducer)
-export const commands = commandsSlice.actions
-export const events = eventHandler.actions
-export const queries = {
+const queries = {
 	get: (state) => state.messenger.account,
 	getRequestRdvSeed: (state) => {
 		const account = protocol.queries.client.get(state)
@@ -87,9 +21,9 @@ export const queries = {
 	},
 }
 
-export const transactions = {
+const commands = ({ sq, events }) => ({
 	open: function* () {
-		const acc = yield select(queries.get)
+		const acc = yield* sq.get()
 		if (!acc) {
 			throw new Error("tried to open the account while it's undefined")
 		}
@@ -195,8 +129,52 @@ export const transactions = {
 			}
 		}
 	},
+})
+
+const events = {
+	created: (state, { payload }) => {
+		if (!state) {
+			state = {
+				name: payload.name,
+				onboarded: false,
+			}
+		}
+		return state
+	},
+	deleted: () => {
+		return null
+	},
+	onboarded: (state) => {
+		if (state) {
+			state.onboarded = true
+		}
+		return state
+	},
+	unboarded: (state) => {
+		if (state) {
+			state.onboarded = false
+		}
+		return state
+	},
+	handleDeepLinkError: (state, { payload: { link, error } }) => {
+		if (state) {
+			state.deepLinkStatus = { link, error }
+		}
+		return state
+	},
+	handleDeepLinkDone: (state, { payload: { link, kind } }) => {
+		if (state) {
+			state.deepLinkStatus = { link, kind }
+		}
+		return state
+	},
 }
 
-export function* orchestrator() {
-	yield all([...makeDefaultCommandsSagas(commands, transactions)])
-}
+export default createSagaSlice({
+	name: 'account',
+	path: 'messenger',
+	initialState: null,
+	commands,
+	events,
+	queries,
+})
