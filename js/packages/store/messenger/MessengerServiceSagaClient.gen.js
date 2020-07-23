@@ -11,6 +11,17 @@ class GRPCError extends Error {
 	}
 }
 
+export const MessengerMethods = {
+	instanceShareableBertyID: 'instanceShareableBertyID',
+	shareableBertyGroup: 'shareableBertyGroup',
+	devShareInstanceBertyID: 'devShareInstanceBertyID',
+	parseDeepLink: 'parseDeepLink',
+	sendContactRequest: 'sendContactRequest',
+	sendMessage: 'sendMessage',
+	sendAck: 'sendAck',
+	systemInfo: 'systemInfo',
+}
+
 export default class MessengerServiceSagaClient {
 	host
 	transport

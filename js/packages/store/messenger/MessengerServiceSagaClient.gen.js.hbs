@@ -14,6 +14,17 @@ class GRPCError extends Error {
 {{#with (lookup "berty.messenger.v1")}}
 	{{#each nested}}
 		{{#if (eq (typeof this) "Service")}}
+      export const Methods = {
+        instanceShareableBertyID: 'instanceShareableBertyID',
+        shareableBertyGroup: 'shareableBertyGroup',
+        devShareInstanceBertyID: 'devShareInstanceBertyID',
+        parseDeepLink: 'parseDeepLink',
+        sendContactRequest: 'sendContactRequest',
+        sendMessage: 'sendMessage',
+        sendAck: 'sendAck',
+        systemInfo: 'systemInfo',
+      }
+
 			export default class {{name}}SagaClient {
 				host
 				transport

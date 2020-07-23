@@ -1,17 +1,13 @@
 import { select, put, call, take, takeEvery } from 'redux-saga/effects'
-import * as protocol from '../protocol'
-import { strToBuf, bufToStr, bufToJSON } from '../utils'
-import { commands as groupsCommands } from '../groups'
-import createSagaSlice from '../createSagaSlice'
-import {
-	ConversationKind,
-	transactions as conversationTransactions,
-	queries as conversationQueries,
-	events as conversationEvents,
-} from './conversation'
+import { berty } from '@berty-tech/api'
+
 import * as faker from '../../components/faker'
 import { AppMessageType } from './AppMessage'
-import { berty } from '@berty-tech/api'
+import * as protocol from '../protocol'
+import { strToBuf, bufToStr, bufToJSON } from '../utils'
+import groups from '../groups'
+import createSagaSlice from '../createSagaSlice'
+import conversation, { ConversationKind } from './conversation'
 
 export const ContactRequestType = {
 	Incoming: 'Incoming',
@@ -199,14 +195,14 @@ const commands = ({ transactions, sq, events }) => ({
 		yield put(events.deletedFake())
 	},
 	delete: function* ({ id }) {
-		const contact = yield* sq.get(id)
+		const contact = yield sq.get(id)
 		if (contact) {
 			const groupPk = yield* contactPkToGroupPk({ contactPk: contact.publicKey })
 			if (groupPk) {
 				const gpkStr = bufToStr(groupPk)
 				if (gpkStr) {
 					yield put(
-						groupsCommands.unsubscribe({
+						groups.commands.unsubscribe({
 							publicKey: gpkStr,
 							metadata: true,
 							messages: true,
@@ -214,12 +210,12 @@ const commands = ({ transactions, sq, events }) => ({
 					)
 				}
 			}
-			const convs = yield select((state) => conversationQueries.list(state))
+			const convs = yield select((state) => conversation.queries.list(state))
 			const idsToDelete = convs
 				.filter((c) => c.kind === ConversationKind.OneToOne && c.contactId === id)
 				.map((c) => c.id)
 			for (const i of idsToDelete) {
-				yield call(conversationTransactions.delete, { id: i })
+				yield call(conversation.transactions.delete, { id: i })
 			}
 			yield put(events.deleted({ contactPk: contact.publicKey }))
 		}
@@ -341,7 +337,7 @@ const effects = ({ events, sq, transactions }) => [
 		)
 		yield call(protocol.client.transactions.activateGroup, { groupPk })
 		yield put(
-			groupsCommands.subscribe({
+			groups.commands.subscribe({
 				publicKey: groupPkStr,
 				metadata: true,
 				messages: true,
@@ -352,7 +348,7 @@ const effects = ({ events, sq, transactions }) => [
 		const {
 			event: { contactPk, contactMetadata },
 		} = payload
-		const contact = yield* sq.get(contactPk)
+		const contact = yield sq.get(contactPk)
 		if (!contact) {
 			let metadata
 			try {
@@ -395,7 +391,7 @@ const effects = ({ events, sq, transactions }) => [
 		}
 		const contact = yield select((state) => queries.get(state, { id: contactPkStr }))
 		if (contact) {
-			yield call(conversationTransactions.createOneToOne, {
+			yield call(conversation.transactions.createOneToOne, {
 				kind: ConversationKind.OneToOne,
 				contactId: contactPkStr,
 				title: contact.name,
@@ -404,7 +400,7 @@ const effects = ({ events, sq, transactions }) => [
 			})
 			yield call(protocol.client.transactions.activateGroup, { groupPk: realGroupPk })
 			yield put(
-				groupsCommands.subscribe({
+				groups.commands.subscribe({
 					publicKey: groupPkStr,
 					messages: true,
 					metadata: true,
@@ -424,7 +420,7 @@ const effects = ({ events, sq, transactions }) => [
 		if (!contactPk) {
 			return
 		}
-		const contact = yield* sq.get(contactPk)
+		const contact = yield sq.get(contactPk)
 		if (!contact || contact.request.type !== ContactRequestType.Outgoing) {
 			return
 		}
@@ -440,7 +436,7 @@ const effects = ({ events, sq, transactions }) => [
 		)
 
 		if (groupPk && contact.request.state === 'initiated') {
-			yield call(conversationTransactions.createOneToOne, {
+			yield call(conversation.transactions.createOneToOne, {
 				kind: ConversationKind.OneToOne,
 				contactId: contact.id,
 				title: contact.name,
@@ -449,7 +445,7 @@ const effects = ({ events, sq, transactions }) => [
 			})
 			yield call(protocol.client.transactions.activateGroup, { groupPk })
 			yield put(
-				groupsCommands.subscribe({
+				groups.commands.subscribe({
 					publicKey: bufToStr(groupPk),
 					messages: true,
 					metadata: true,
@@ -458,7 +454,6 @@ const effects = ({ events, sq, transactions }) => [
 		}
 	}),
 	takeEvery('protocol/GroupMessageEvent', function* ({ payload }) {
-		console.log('got groupMetadataPayloadSent')
 		if (!payload.message) {
 			return
 		}
@@ -478,7 +473,7 @@ const effects = ({ events, sq, transactions }) => [
 			}
 
 			yield put(
-				conversationEvents.created({
+				conversation.events.created({
 					kind: ConversationKind.MultiMember,
 					title: event.name,
 					pk: event.group.publicKey,
@@ -493,7 +488,7 @@ const effects = ({ events, sq, transactions }) => [
 			}
 
 			yield put(
-				groupsCommands.subscribe({
+				groups.commands.subscribe({
 					publicKey: event.group.publicKey,
 					metadata: true,
 					messages: true,

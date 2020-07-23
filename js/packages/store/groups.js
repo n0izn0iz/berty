@@ -1,93 +1,80 @@
-import { createSlice } from '@reduxjs/toolkit'
-import { put, all, select, fork, takeEvery, cancel, call } from 'redux-saga/effects'
+import { put, all, fork, takeEvery, cancel, call } from 'redux-saga/effects'
 
-import { makeDefaultCommandsSagas, strToBuf, bufToStr, createCommands } from './utils'
+import { strToBuf, bufToStr, noopReducer } from './utils'
 import { transactions as clientTransactions, events as clientEvents } from './protocol/client'
+import createSagaSlice from './createSagaSlice'
 
-// Commands
-
-const commandsHandler = createCommands('groups/commands', undefined, [
-	'open',
-	'subscribe',
-	'unsubscribe',
-])
-
-export const commands = commandsHandler.actions
-
-// Events
-
-const eventsHandler = createSlice({
-	name: 'groups/events',
-	initialState: {},
-	reducers: {
-		updated: (state: State, { payload }) => {
-			const { publicKey, metadata, messages } = payload
-			const group = state[payload.publicKey]
-			if (!group) {
-				state[payload.publicKey] = {
-					publicKey,
-					metadata,
-					messages,
-					cids: {},
-					membersDevices: {},
-				}
-				return state
-			}
-			group.metadata = metadata
-			group.messages = messages
-			return state
-		},
-		cidRead: (state: State, { payload: { cid, publicKey } }) => {
-			if (!state[publicKey]) {
-				state[publicKey] = {
-					publicKey,
-					cids: { [cid]: true },
-					membersDevices: {},
-				}
-			}
-			state[publicKey].cids[cid] = true
-			return state
-		},
-		memberDeviceAdded: (
-			state: State,
-			{ payload: { groupPublicKey, memberPublicKey, devicePublicKey } },
-		) => {
-			if (!state[groupPublicKey]) {
-				state[groupPublicKey] = {
-					publicKey: groupPublicKey,
-					cids: {},
-					membersDevices: {},
-				}
-			}
-			const group = state[groupPublicKey]
-			const devices = group.membersDevices[memberPublicKey]
-			if (!devices) {
-				group.membersDevices[memberPublicKey] = [devicePublicKey]
-				return state
-			}
-			if (devices.indexOf(devicePublicKey) === -1) {
-				devices.push(devicePublicKey)
-			}
-			return state
-		},
-	},
-})
-
-export const events = eventsHandler.actions
+const initialState = {}
 
 // Queries
 
-export const queries = {
-	list: (state) => Object.values(state.groups),
-	get: (state, { groupId }) => state.groups[groupId],
+const queries = {
+	getMap: (state) => state?.groups || {},
+	list: (state) => Object.values(queries.getMap(state)),
+	get: (state, { groupId }) => queries.getMap(state)[groupId],
+	isCIDRead: (state, { groupId, cid }) => !!queries.get(state, { groupId })?.cids[cid],
 }
 
-// Transactions
+// Events
 
-export const transactions = {
+const eventsReducers = {
+	updated: (state, { payload }) => {
+		const { publicKey, metadata, messages } = payload
+		const group = state[payload.publicKey]
+		if (!group) {
+			state[payload.publicKey] = {
+				publicKey,
+				metadata,
+				messages,
+				cids: {},
+				membersDevices: {},
+			}
+			return state
+		}
+		group.metadata = metadata
+		group.messages = messages
+		return state
+	},
+	cidRead: (state, { payload: { cid, publicKey } }) => {
+		if (!state[publicKey]) {
+			state[publicKey] = {
+				publicKey,
+				cids: { [cid]: true },
+				membersDevices: {},
+			}
+		}
+		state[publicKey].cids[cid] = true
+		return state
+	},
+	memberDeviceAdded: (state, { payload: { groupPublicKey, memberPublicKey, devicePublicKey } }) => {
+		if (!state[groupPublicKey]) {
+			state[groupPublicKey] = {
+				publicKey: groupPublicKey,
+				cids: {},
+				membersDevices: {},
+			}
+		}
+		const group = state[groupPublicKey]
+		const devices = group.membersDevices[memberPublicKey]
+		if (!devices) {
+			group.membersDevices[memberPublicKey] = [devicePublicKey]
+			return state
+		}
+		if (devices.indexOf(devicePublicKey) === -1) {
+			devices.push(devicePublicKey)
+		}
+		return state
+	},
+	opened: noopReducer,
+	stoped: noopReducer,
+}
+
+// Commands
+
+const commandsFactory = ({ commands, events, sq }) => ({
 	open: function* () {
 		const allTasks = {}
-		const optsList = yield select(queries.list)
+		const optsList = yield sq.list()
 		for (const opts of optsList) {
 			const groupPk = strToBuf(opts.publicKey)
 			if (opts.messages || opts.metadata) {
@@ -102,7 +89,7 @@ export const transactions = {
 			}
 			allTasks[opts.publicKey] = tasks
 		}
-		yield put({ type: 'GROUPS_OPENED' })
+		yield put(events.opened())
 		yield all([
 			takeEvery(commands.subscribe, function* ({ payload }) {
 				const tasks: SubscribeTasks = allTasks[payload.publicKey] || {}
@@ -136,43 +123,43 @@ export const transactions = {
 					task?.messagesTask?.cancel()
 					task?.metadataTask?.cancel()
 				}
-				yield put({ type: 'GROUPS_STOPED' })
+				yield put(events.stoped())
 			}),
 		])
 	},
-	isCIDRead: function* ({ cid, publicKey }) {
-		return yield select((state: GlobalState) => state.groups[publicKey]?.cids[cid])
-	},
+
 	subscribe: function* () {
 		// handled in 'open' transaction
 	},
 	unsubscribe: function* () {
 		// handled in 'open' transaction
 	},
-}
+})
 
-export function* orchestrator() {
-	yield all([
-		...makeDefaultCommandsSagas(commands, transactions),
-		takeEvery(clientEvents.groupMemberDeviceAdded, function* ({ payload }) {
-			const {
-				event: { devicePk, memberPk },
-				eventContext: { groupPk },
-			} = payload
-			if (!(devicePk && memberPk && groupPk)) {
-				return
-			}
-			yield put(
-				events.memberDeviceAdded({
-					groupPublicKey: bufToStr(groupPk),
-					memberPublicKey: bufToStr(memberPk),
-					devicePublicKey: bufToStr(devicePk),
-				}),
-			)
-		}),
-	])
-}
+const effectsFactory = ({ events }) => [
+	takeEvery(clientEvents.groupMemberDeviceAdded, function* ({ payload }) {
+		const {
+			event: { devicePk, memberPk },
+			eventContext: { groupPk },
+		} = payload
+		if (!(devicePk && memberPk && groupPk)) {
+			return
+		}
+		yield put(
+			events.memberDeviceAdded({
+				groupPublicKey: bufToStr(groupPk),
+				memberPublicKey: bufToStr(memberPk),
+				devicePublicKey: bufToStr(devicePk),
+			}),
+		)
+	}),
+]
 
-// Exports
-
-export const reducers = { groups: eventsHandler.reducer }
+export default createSagaSlice({
+	name: 'groups',
+	initialState,
+	effects: effectsFactory,
+	queries,
+	commands: commandsFactory,
+	events: eventsReducers,
+})

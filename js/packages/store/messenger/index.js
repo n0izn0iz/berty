@@ -11,31 +11,30 @@ import * as protocol from '../protocol'
 import * as settings from '../settings'
 import account from './account'
 import contact from './contact'
-import * as conversation from './conversation'
-import * as message from './message'
-import * as groups from '../groups'
+import conversation from './conversation'
+import message from './message'
+import groups from '../groups'
 
 export * from './AppMessage'
 
 export { account, contact, conversation, message }
 
+const combineSagaSlices = (slices) =>
+	combineReducers(slices.reduce((r, s) => ({ ...r, [s.name]: s.reducer }), {}))
+
 export const reducers = {
 	...protocol.reducers,
 	...settings.reducers,
-	...groups.reducers,
-	messenger: combineReducers({
-		account: account.reducer,
-		contact: contact.reducer,
-		conversation: conversation.reducer,
-		message: message.reducer,
-	}),
+	groups: groups.reducer,
+	messenger: combineSagaSlices([account, contact, conversation, message]),
 }
 
 function* initApp() {
-	let acc = yield* account.sq.get()
+	console.log('reducers', reducers)
+	let acc = yield account.sq.get()
 	if (!acc) {
 		yield take(account.events.created)
-		acc = yield* account.sq.get()
+		acc = yield account.sq.get()
 	}
 	yield* protocol.transactions.client.start({ name: acc.name })
 	yield* account.transactions.open()

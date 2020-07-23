@@ -17,7 +17,9 @@ import {
 	cancelled,
 } from 'redux-saga/effects'
 import * as gen from './client.gen'
-import * as messengerGen from '../messenger/client.gen'
+import MessengerServiceSagaClient, {
+	MessengerMethods,
+} from '../messenger/MessengerServiceSagaClient.gen'
 import * as api from '@berty-tech/api'
 import Case from 'case'
 import * as evgen from '../types/events.gen'
@@ -32,15 +34,14 @@ import ExternalTransport from './externalTransport'
 import { getMainSettings } from '../settings/main'
 import ProtocolServiceSagaClient from './ProtocolServiceSagaClient.gen'
 import { grpc } from '@improbable-eng/grpc-web'
-import MessengerServiceSagaClient from '../messenger/MessengerServiceSagaClient.gen'
-import { transactions as groupsTransactions, events as groupsEvents } from '../groups'
+import groups from '../groups'
 
 const protocolMethodsKeys = Object.keys(gen.Methods)
-const messengerMethodsKeys = Object.keys(messengerGen.Methods)
+const messengerMethodsKeys = Object.keys(MessengerMethods)
 
 const initialState = null
 
-const commandsNames = [...Object.keys(gen.Methods), ...Object.keys(messengerGen.Methods), 'delete']
+const commandsNames = [...protocolMethodsKeys, ...messengerMethodsKeys, 'delete']
 
 const commandsSlice = createSlice({
 	name: 'protocol/client/command',
@@ -377,7 +378,7 @@ export const transactions = {
 		yield put({ type: 'STOP_CLIENT' })
 		yield take('WATCHDOG_STOPED')
 		console.log('watchdog stoped')
-		yield take('GROUPS_STOPED')
+		yield take(groups.events.stoped)
 		console.log('groups stoped')
 		console.log('stoping protocol')
 		yield call(GoBridge.stopProtocol)
@@ -436,14 +437,11 @@ export const transactions = {
 				if (cid) {
 					const cidStr = bufToStr(cid)
 					const pkStr = bufToStr(req.groupPk)
-					const alreadyRead = yield* groupsTransactions.isCIDRead({
-						publicKey: pkStr,
-						cid: cidStr,
-					})
+					const alreadyRead = yield groups.sq.isCIDRead({ groupId: pkStr, cid: cidStr })
 					if (!alreadyRead) {
 						const action = groupMetadataEventToReduxAction(reply)
 						yield put(action)
-						yield put(groupsEvents.cidRead({ cid: cidStr, publicKey: pkStr }))
+						yield put(groups.events.cidRead({ cid: cidStr, publicKey: pkStr }))
 					}
 				}
 			}
@@ -462,14 +460,11 @@ export const transactions = {
 				if (cid) {
 					const cidStr = bufToStr(cid)
 					const pkStr = bufToStr(req.groupPk)
-					const alreadyRead = yield* groupsTransactions.isCIDRead({
-						publicKey: pkStr,
-						cid: cidStr,
-					})
+					const alreadyRead = yield groups.sq.isCIDRead({ groupId: pkStr, cid: cidStr })
 					if (!alreadyRead) {
 						const action = groupMessageEventToReduxAction(reply)
 						yield put(action)
-						yield put(groupsEvents.cidRead({ cid: cidStr, publicKey: pkStr }))
+						yield put(groups.events.cidRead({ cid: cidStr, publicKey: pkStr }))
 					}
 				}
 			}
@@ -488,14 +483,11 @@ export const transactions = {
 				if (cid) {
 					const cidStr = bufToStr(cid)
 					const pkStr = bufToStr(req.groupPk)
-					const alreadyRead = yield* groupsTransactions.isCIDRead({
-						publicKey: pkStr,
-						cid: cidStr,
-					})
+					const alreadyRead = yield groups.sq.isCIDRead({ groupId: pkStr, cid: cidStr })
 					if (!alreadyRead) {
 						const action = groupMetadataEventToReduxAction(reply)
 						yield put(action)
-						yield put(groupsEvents.cidRead({ cid: cidStr, publicKey: pkStr }))
+						yield put(groups.events.cidRead({ cid: cidStr, publicKey: pkStr }))
 					}
 				}
 			}
@@ -514,14 +506,11 @@ export const transactions = {
 				if (cid) {
 					const cidStr = bufToStr(cid)
 					const pkStr = bufToStr(req.groupPk)
-					const alreadyRead = yield* groupsTransactions.isCIDRead({
-						publicKey: pkStr,
-						cid: cidStr,
-					})
+					const alreadyRead = yield groups.sq.isCIDRead({ groupId: pkStr, cid: cidStr })
 					if (!alreadyRead) {
 						const action = groupMessageEventToReduxAction(reply)
 						yield put(action)
-						yield put(groupsEvents.cidRead({ cid: cidStr, publicKey: pkStr }))
+						yield put(groups.events.cidRead({ cid: cidStr, publicKey: pkStr }))
 					}
 				}
 			}
@@ -545,6 +534,7 @@ export const transactions = {
 						goBackwards: false,
 					})
 				} catch (e) {
+					console.error(e)
 					console.warn('listenToGroupMetadata error:', e)
 				} finally {
 					if (yield cancelled()) {

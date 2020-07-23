@@ -6,6 +6,8 @@ function defaultReducer(state) {
 	return state
 }
 
+export const noopReducer = (state) => state
+
 export function makeDefaultReducers(names) {
 	return names.reduce((rdcs, name) => {
 		rdcs[name] = defaultReducer

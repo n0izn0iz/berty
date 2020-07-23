@@ -1,27 +1,15 @@
-import { createSlice } from '@reduxjs/toolkit'
-import { composeReducers } from 'redux-compose'
-import { put, all, select, takeEvery, call } from 'redux-saga/effects'
+import { put, select, takeEvery, call } from 'redux-saga/effects'
 import { berty } from '@berty-tech/api'
-import {
-	makeDefaultCommandsSagas,
-	strToBuf,
-	bufToStr,
-	jsonToBuf,
-	bufToJSON,
-	unaryChan,
-} from '../utils'
-import {
-	commands as groupsCommands,
-	transactions as groupsTransactions,
-	queries as groupsQueries,
-} from '../groups'
-import { queries as contactQueries, events as contactEvents, contactPkToGroupPk } from './contact'
-import { AppMessageType } from './AppMessage'
-import { messenger } from '@berty-tech/store'
-import * as faker from '../../components/faker'
 
+import { strToBuf, bufToStr, jsonToBuf, bufToJSON, unaryChan } from '../utils'
+import groups from '../groups'
+import contact, { contactPkToGroupPk } from './contact'
+import { AppMessageType } from './AppMessage'
+import * as faker from '../../components/faker'
+import createSagaSlice from '../createSagaSlice'
 import * as protocol from '../protocol'
-import { account } from '.'
+import account from './account'
+import message from './message'
 
 export const ConversationKind = {
 	OneToOne: 'OneToOne',
@@ -34,198 +22,188 @@ const initialState = {
 	aggregates: {},
 }
 
-const commandsSlice = createSlice({
-	name: 'messenger/conversation/command',
-	initialState,
-	reducers: {
-		generate: (state) => state,
-		generateMsg: (state) => state,
-		create: (state) => state,
-		join: (state) => state,
-		delete: (state) => state,
-		deleteFake: (state) => state,
-		deleteAll: (state) => state,
-		addMessage: (state) => state,
-		startRead: (state) => state,
-		stopRead: (state) => state,
+const eventsDef = {
+	deleted: (state, { payload }) => {
+		// Delete conversation
+		delete state.aggregates[payload.aggregateId]
+		return state
 	},
-})
-
-const eventHandler = createSlice({
-	name: 'messenger/conversation/event',
-	initialState,
-	reducers: {
-		deleted: (state, { payload }) => {
-			// Delete conversation
-			delete state.aggregates[payload.aggregateId]
-			return state
-		},
-		deletedFake: (state) => {
-			for (const conv of Object.values(state.aggregates)) {
-				if (conv.fake) {
-					delete state.aggregates[conv.id]
-				}
+	deletedFake: (state) => {
+		for (const conv of Object.values(state.aggregates)) {
+			if (conv.fake) {
+				delete state.aggregates[conv.id]
 			}
-			return state
-		},
-		generated: (state, { payload }) => {
-			const { convs } = payload
-			for (const conv of convs) {
-				state.aggregates[conv.id] = conv
-			}
-			return state
-		},
-		generatedMsg: (state, { payload }) => {
-			const { msgs } = payload
-			for (const msg of msgs) {
-				state.aggregates[payload.id].messages.push(msg.id)
-			}
-			return state
-		},
-		created: (state, { payload }) => {
-			const { pk, title, now, shareableGroup } = payload
-			// Create id
-			if (!state.aggregates[pk]) {
-				const base = {
-					id: pk,
-					title,
-					pk,
-					fake: false,
-					shareableGroup,
-					createdAt: now,
-					members: [],
-					messages: [],
-					membersNames: {},
-					unreadCount: 0,
-					reading: false,
-				}
-				if (payload.kind === ConversationKind.OneToOne) {
-					const oneToOne = { ...base, contactId: payload.contactId, kind: payload.kind }
-					state.aggregates[pk] = oneToOne
-				} else if (payload.kind === ConversationKind.MultiMember) {
-					state.aggregates[pk] = { ...base, kind: payload.kind }
-				}
-			} else {
-				const conv = state.aggregates[pk]
-				if (shareableGroup) {
-					conv.shareableGroup = shareableGroup
-				}
-				if (title && title !== 'Unknown') {
-					conv.title = title
-				}
-			}
-			return state
-		},
-		nameUpdated: (state, { payload }) => {
-			const { aggregateId, name } = payload
-			if (state.aggregates[aggregateId]) {
-				state.aggregates[aggregateId].title = name
-				if (payload.shareableGroup) {
-					state.aggregates[aggregateId].shareableGroup = payload.shareableGroup
-				}
-			}
-			return state
-		},
-		userNameUpdated: (state, { payload }) => {
-			const { aggregateId, userName, memberPk } = payload
-			const conversation = state.aggregates[aggregateId]
-			if (conversation) {
-				if (!conversation.membersNames[memberPk]) {
-					conversation.membersNames[memberPk] = userName
-				}
-			}
-			return state
-		},
-		messageAdded: (state, { payload }) => {
-			const conv = state.aggregates[payload.aggregateId]
-			if (conv) {
-				if (!conv.messages) {
-					conv.messages = []
-				}
-				conv.messages.push(payload.messageId)
-				if (payload.isMe) {
-					conv.lastSentMessage = payload.messageId
-				} else if (!conv.reading) {
-					conv.unreadCount += 1
-				}
-				conv.lastMessageDate = payload.lastMessageDate
-			}
-			return state
-		},
-		startRead: (state, { payload: id }) => {
-			const conv = state.aggregates[id]
-			if (conv) {
-				conv.unreadCount = 0
-				conv.reading = true
-			}
-			return state
-		},
-		stopRead: (state, { payload: id }) => {
-			const conv = state.aggregates[id]
-			if (conv) {
-				conv.reading = false
-			}
-			return state
-		},
-		appInit: (state) => {
-			for (const conv of Object.values(state.aggregates)) {
-				conv.reading = false
-			}
-			return state
-		},
+		}
+		return state
 	},
-})
-
-export const getAggregates = (state) => {
-	const result = {
-		...state.messenger.conversation.aggregates,
-	}
-	return result
+	generated: (state, { payload }) => {
+		const { convs } = payload
+		for (const conv of convs) {
+			state.aggregates[conv.id] = conv
+		}
+		return state
+	},
+	generatedMsg: (state, { payload }) => {
+		const { msgs } = payload
+		for (const msg of msgs) {
+			state.aggregates[payload.id].messages.push(msg.id)
+		}
+		return state
+	},
+	created: (state, { payload }) => {
+		const { pk, title, now, shareableGroup } = payload
+		// Create id
+		if (!state.aggregates[pk]) {
+			const base = {
+				id: pk,
+				title,
+				pk,
+				fake: false,
+				shareableGroup,
+				createdAt: now,
+				members: [],
+				messages: [],
+				membersNames: {},
+				unreadCount: 0,
+				reading: false,
+			}
+			if (payload.kind === ConversationKind.OneToOne) {
+				const oneToOne = { ...base, contactId: payload.contactId, kind: payload.kind }
+				state.aggregates[pk] = oneToOne
+			} else if (payload.kind === ConversationKind.MultiMember) {
+				state.aggregates[pk] = { ...base, kind: payload.kind }
+			}
+		} else {
+			const conv = state.aggregates[pk]
+			if (shareableGroup) {
+				conv.shareableGroup = shareableGroup
+			}
+			if (title && title !== 'Unknown') {
+				conv.title = title
+			}
+		}
+		return state
+	},
+	nameUpdated: (state, { payload }) => {
+		const { aggregateId, name } = payload
+		if (state.aggregates[aggregateId]) {
+			state.aggregates[aggregateId].title = name
+			if (payload.shareableGroup) {
+				state.aggregates[aggregateId].shareableGroup = payload.shareableGroup
+			}
+		}
+		return state
+	},
+	userNameUpdated: (state, { payload }) => {
+		const { aggregateId, userName, memberPk } = payload
+		const conversation = state.aggregates[aggregateId]
+		if (conversation) {
+			if (!conversation.membersNames[memberPk]) {
+				conversation.membersNames[memberPk] = userName
+			}
+		}
+		return state
+	},
+	messageAdded: (state, { payload }) => {
+		const conv = state.aggregates[payload.aggregateId]
+		if (conv) {
+			if (!conv.messages) {
+				conv.messages = []
+			}
+			conv.messages.push(payload.messageId)
+			if (payload.isMe) {
+				conv.lastSentMessage = payload.messageId
+			} else if (!conv.reading) {
+				conv.unreadCount += 1
+			}
+			conv.lastMessageDate = payload.lastMessageDate
+		}
+		return state
+	},
+	startRead: (state, { payload: id }) => {
+		const conv = state.aggregates[id]
+		if (conv) {
+			conv.unreadCount = 0
+			conv.reading = true
+		}
+		return state
+	},
+	stopRead: (state, { payload: id }) => {
+		const conv = state.aggregates[id]
+		if (conv) {
+			conv.reading = false
+		}
+		return state
+	},
+	appInit: (state) => {
+		for (const conv of Object.values(state.aggregates)) {
+			conv.reading = false
+		}
+		return state
+	},
 }
 
-export const reducer = composeReducers(commandsSlice.reducer, eventHandler.reducer)
-export const commands = commandsSlice.actions
-export const events = eventHandler.actions
-export const queries = {
-	list: (state) => Object.values(getAggregates(state)),
+const queries = {
+	getAggregates: (state) => state.messenger.conversation.aggregates,
+	list: (state) => Object.values(queries.getAggregates(state)),
 	listHuman: (state) =>
-		Object.values(state.messenger.conversation.aggregates).filter(
-			(conv) =>
-				conv.kind === ConversationKind.OneToOne || conv.kind === ConversationKind.MultiMember,
-		),
-	get: (state, { id }) => getAggregates(state)[id],
-	getLength: (state) => Object.keys(getAggregates(state)).length,
-	getFakeLength: (state) => queries.list(state).filter((conv) => conv.fake).length,
+		queries
+			.list(state)
+			.filter(
+				(conv) =>
+					conv.kind === ConversationKind.OneToOne || conv.kind === ConversationKind.MultiMember,
+			),
+	get: (state, { id }) => queries.getAggregates(state)[id],
+	getLength: (state) => queries.list().length,
+	getFakeLength: (state) => queries.list(state).filter((e) => e?.fake).length,
 	searchByTitle: (state, { searchText }) =>
-		Object.values(state.messenger.conversation.aggregates).filter((conv) =>
-			searchText?.toLowerCase().includes(conv.title?.toLowerCase()),
-		),
+		queries.list().filter((conv) => searchText?.toLowerCase().includes(conv.title?.toLowerCase())),
 }
 
-export const transactions = {
+const txs = ({ events }) => ({
 	open: function* () {
 		yield put(events.appInit())
 	},
+	createOneToOne: function* (payload) {
+		if (payload.kind !== ConversationKind.OneToOne) {
+			return
+		}
+		const group = yield select((state) => groups.queries.get(state, { groupId: payload.pk }))
+		if (group) {
+			if (Object.keys(group.membersDevices).length > 1) {
+				const c = yield contact.sq.get({ id: payload.contactId })
+				if (c && !c.request.accepted) {
+					yield put(contact.events.requestAccepted({ id: contact.id }))
+				}
+				//
+			}
+		}
+
+		yield put(events.created(payload))
+	},
+})
+
+const commands = ({ events, transactions, sq }) => ({
 	deleteFake: function* () {
-		yield* messenger.contact.transactions.deleteFake()
-		yield* messenger.message.transactions.deleteFake()
+		yield* contact.transactions.deleteFake()
+		yield* message.transactions.deleteFake()
 		yield put(events.deletedFake())
 	},
 	generate: function* ({ length }) {
-		const contacts = yield* messenger.contact.transactions.generate({ length })
-		const index = yield select((state) => queries.getFakeLength(state))
+		const contacts = yield* contact.transactions.generate({ length })
+		const index = yield sq.getFakeLength()
 		const convs = faker.fakeConversations(length, index)
 		for (const conv of convs) {
-			const contact = contacts.find((c) => conv.id === c.id)
+			const c = contacts.find((e) => conv.id === e.id)
 			conv.membersNames = {
 				...conv.membersNames,
-				[contact.id]: contact.name,
+				[c.id]: c.name,
 			}
-			conv.contactId = contact.id
-			conv.title = contact.name
-			conv.pk = contact.publicKey
+			conv.contactId = c.id
+			conv.title = c.name
+			conv.pk = c.publicKey
 			conv.messages = []
-			const messages = yield* messenger.message.transactions.generate({ length: 10 })
+			const messages = yield* message.transactions.generate({ length: 10 })
 			for (const msg of messages) {
 				conv.messages.push(msg.id)
 			}
@@ -242,7 +220,7 @@ export const transactions = {
 		const convs = yield select((state) => queries.list(state))
 		for (const conv of convs) {
 			if (conv.fake) {
-				const msgs = yield* messenger.message.transactions.generate({ length })
+				const msgs = yield* message.transactions.generate({ length })
 				yield put(events.generatedMsg({ msgs, id: conv.id }))
 			}
 		}
@@ -305,7 +283,7 @@ export const transactions = {
 		console.log('subscribing')
 
 		yield put(
-			groupsCommands.subscribe({
+			groups.commands.subscribe({
 				publicKey: groupPkStr,
 				metadata: true,
 				messages: true,
@@ -418,31 +396,12 @@ export const transactions = {
 			console.warn('Failed to join multi-member group:', e)
 		}
 	},
-	createOneToOne: function* (payload) {
-		if (payload.kind !== ConversationKind.OneToOne) {
-			return
-		}
-		const group = yield select((state) => groupsQueries.get(state, { groupId: payload.pk }))
-		if (group) {
-			if (Object.keys(group.membersDevices).length > 1) {
-				const contact = yield select((state) =>
-					contactQueries.get(state, { id: payload.contactId }),
-				)
-				if (contact && !contact.request.accepted) {
-					yield put(contactEvents.requestAccepted({ id: contact.id }))
-				}
-				//
-			}
-		}
-
-		yield put(events.created(payload))
-	},
 	delete: function* ({ id }) {
 		const conv = yield select((state) => queries.get(state, { id }))
 		if (!conv) {
 			return
 		}
-		yield call(groupsTransactions.unsubscribe, {
+		yield call(groups.transactions.unsubscribe, {
 			publicKey: conv.pk,
 			metadata: true,
 			messages: true,
@@ -477,143 +436,152 @@ export const transactions = {
 	stopRead: function* (id) {
 		yield put(events.stopRead(id))
 	},
-}
+})
 
-export function* orchestrator() {
-	yield all([
-		...makeDefaultCommandsSagas(commands, transactions),
-		takeEvery(protocol.events.client.accountContactRequestOutgoingEnqueued, function* ({
-			payload,
-		}) {
-			const {
-				event: { contact: c },
-			} = payload
-			// Recup metadata
-			if (!c || !c.metadata || !c.pk) {
-				throw new Error('Invalid contact')
-			}
-			const contactPk = payload.event.contact.pk
-			if (!contactPk) {
-				return
-			}
-			const groupInfo = yield* protocol.transactions.client.groupInfo({
-				contactPk,
+const effects = ({ events, transactions }) => [
+	takeEvery(protocol.events.client.accountContactRequestOutgoingEnqueued, function* ({ payload }) {
+		const {
+			event: { contact: c },
+		} = payload
+		// Recup metadata
+		if (!c || !c.metadata || !c.pk) {
+			throw new Error('Invalid contact')
+		}
+		const contactPk = payload.event.contact.pk
+		if (!contactPk) {
+			return
+		}
+		const groupInfo = yield* protocol.transactions.client.groupInfo({
+			contactPk,
+		})
+		const { group } = groupInfo
+		if (!group) {
+			return
+		}
+		const { publicKey: groupPk } = group
+		if (!groupPk) {
+			return
+		}
+		const groupPkStr = bufToStr(groupPk)
+		const metadata = bufToJSON(c.metadata)
+		yield call(transactions.createOneToOne, {
+			title: metadata.name,
+			pk: groupPkStr,
+			kind: ConversationKind.OneToOne,
+			contactId: bufToStr(c.pk),
+			now: Date.now(),
+		})
+	}),
+	takeEvery(protocol.events.client.accountGroupJoined, function* ({ payload }) {
+		const {
+			event: { group },
+			eventContext: { groupPk },
+		} = payload
+		const { publicKey, groupType } = group
+		if (groupType !== berty.types.v1.GroupType.GroupTypeMultiMember || !groupPk) {
+			return
+		}
+		if (!publicKey) {
+			throw new Error('Invalid public key')
+		}
+		yield call(protocol.client.transactions.activateGroup, { groupPk: publicKey })
+		let reply
+		try {
+			reply = yield* protocol.client.transactions.shareableBertyGroup({
+				groupPk: publicKey,
+				groupName: 'Unknown',
 			})
-			const { group } = groupInfo
-			if (!group) {
-				return
-			}
-			const { publicKey: groupPk } = group
-			if (!groupPk) {
-				return
-			}
-			const groupPkStr = bufToStr(groupPk)
-			const metadata = bufToJSON(c.metadata)
-			yield call(transactions.createOneToOne, {
-				title: metadata.name,
-				pk: groupPkStr,
-				kind: ConversationKind.OneToOne,
-				contactId: bufToStr(c.pk),
+		} catch (e) {
+			console.warn('Failed to get deep link for group')
+		}
+		yield put(
+			events.created({
+				title: 'Unknown',
+				pk: bufToStr(publicKey),
+				kind: ConversationKind.MultiMember,
 				now: Date.now(),
-			})
-		}),
-		takeEvery(protocol.events.client.accountGroupJoined, function* ({ payload }) {
-			const {
-				event: { group },
-				eventContext: { groupPk },
-			} = payload
-			const { publicKey, groupType } = group
-			if (groupType !== berty.types.v1.GroupType.GroupTypeMultiMember || !groupPk) {
-				return
-			}
-			if (!publicKey) {
-				throw new Error('Invalid public key')
-			}
-			yield call(protocol.client.transactions.activateGroup, { groupPk: publicKey })
+				shareableGroup: reply?.deepLink || undefined,
+			}),
+		)
+		yield put(
+			groups.commands.subscribe({
+				publicKey: bufToStr(publicKey),
+				messages: true,
+				metadata: true,
+			}),
+		)
+		const a = yield select((state) => account.queries.get(state))
+		if (!a) {
+			console.warn('account not found')
+			return
+		}
+		const groupInfo = yield call(protocol.transactions.client.groupInfo, {
+			groupPk: publicKey,
+			contactPk: new Uint8Array(),
+		})
+		const setUserName = {
+			type: AppMessageType.SetUserName,
+			userName: a.name,
+			memberPk: bufToStr(groupInfo.memberPk),
+		}
+		yield* protocol.client.transactions.appMetadataSend({
+			groupPk: publicKey,
+			payload: jsonToBuf(setUserName),
+		})
+	}),
+	takeEvery(protocol.events.client.groupMetadataPayloadSent, function* ({ payload }) {
+		const {
+			eventContext: { groupPk },
+		} = payload
+		const event = payload.event
+		if (!groupPk) {
+			return
+		}
+		const id = bufToStr(groupPk)
+		const conversation = yield select((state) => queries.get(state, { id }))
+		if (!conversation) {
+			return
+		}
+		if (event && event.type === AppMessageType.SetGroupName) {
 			let reply
 			try {
 				reply = yield* protocol.client.transactions.shareableBertyGroup({
-					groupPk: publicKey,
-					groupName: 'Unknown',
+					groupPk,
+					groupName: event.name,
 				})
 			} catch (e) {
 				console.warn('Failed to get deep link for group')
 			}
 			yield put(
-				events.created({
-					title: 'Unknown',
-					pk: bufToStr(publicKey),
-					kind: ConversationKind.MultiMember,
-					now: Date.now(),
+				events.nameUpdated({
+					aggregateId: id,
+					name: event.name,
 					shareableGroup: reply?.deepLink || undefined,
 				}),
 			)
+		}
+		if (event && event.type === AppMessageType.SetUserName) {
 			yield put(
-				groupsCommands.subscribe({
-					publicKey: bufToStr(publicKey),
-					messages: true,
-					metadata: true,
+				events.userNameUpdated({
+					aggregateId: id,
+					userName: event.userName,
+					memberPk: event.memberPk,
 				}),
 			)
-			const a = yield select((state) => account.queries.get(state))
-			if (!a) {
-				console.warn('account not found')
-				return
-			}
-			const groupInfo = yield call(protocol.transactions.client.groupInfo, {
-				groupPk: publicKey,
-				contactPk: new Uint8Array(),
-			})
-			const setUserName = {
-				type: AppMessageType.SetUserName,
-				userName: a.name,
-				memberPk: bufToStr(groupInfo.memberPk),
-			}
-			yield* protocol.client.transactions.appMetadataSend({
-				groupPk: publicKey,
-				payload: jsonToBuf(setUserName),
-			})
-		}),
-		takeEvery(protocol.events.client.groupMetadataPayloadSent, function* ({ payload }) {
-			const {
-				eventContext: { groupPk },
-			} = payload
-			const event = payload.event
-			if (!groupPk) {
-				return
-			}
-			const id = bufToStr(groupPk)
-			const conversation = yield select((state) => queries.get(state, { id }))
-			if (!conversation) {
-				return
-			}
-			if (event && event.type === AppMessageType.SetGroupName) {
-				let reply
-				try {
-					reply = yield* protocol.client.transactions.shareableBertyGroup({
-						groupPk,
-						groupName: event.name,
-					})
-				} catch (e) {
-					console.warn('Failed to get deep link for group')
-				}
-				yield put(
-					events.nameUpdated({
-						aggregateId: id,
-						name: event.name,
-						shareableGroup: reply?.deepLink || undefined,
-					}),
-				)
-			}
-			if (event && event.type === AppMessageType.SetUserName) {
-				yield put(
-					events.userNameUpdated({
-						aggregateId: id,
-						userName: event.userName,
-						memberPk: event.memberPk,
-					}),
-				)
-			}
-		}),
-	])
-}
+		}
+	}),
+]
+
+export default createSagaSlice({
+	name: 'conversation',
+	path: 'messenger',
+	initialState,
+	events: eventsDef,
+	transactions: txs,
+	commands,
+	effects,
+	queries,
+	exports: {
+		ConversationKind,
+	},
+})

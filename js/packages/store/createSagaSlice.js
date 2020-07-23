@@ -8,8 +8,8 @@ export default ({
 	path,
 	initialState,
 	name,
-	commands: cmdsDef = () => {},
-	events: eventsDef = {},
+	commands: cmdsFactory = () => {},
+	events: eventsReducers = {},
 	transactions = () => {},
 	queries = {},
 	effects = () => [],
@@ -24,7 +24,7 @@ export default ({
 	if (queries && typeof queries !== 'object') {
 		throw new Error('Invalid queries')
 	}
-	if (cmdsDef && typeof cmdsDef !== 'function') {
+	if (cmdsFactory && typeof cmdsFactory !== 'function') {
 		throw new Error('Invalid commands')
 	}
 	if (effects && typeof effects !== 'function') {
@@ -43,9 +43,7 @@ export default ({
 	const sagaQueries = Object.entries(queries).reduce(
 		(o, [k, q]) => ({
 			...o,
-			[k]: function* (payload) {
-				return yield select((state) => q(state, payload))
-			},
+			[k]: (payload) => select((state) => q(state, payload)),
 		}),
 		{},
 	)
@@ -54,21 +52,22 @@ export default ({
 	const eventsSlice = createSlice({
 		name: `${fullPath}/events`,
 		initialState,
-		reducers: eventsDef,
+		reducers: eventsReducers,
 		extraReducers,
 	})
 	const events = eventsSlice.actions
 
-	// transactions part 1
+	// forward declarations
 	const allTxs = {}
-	// this allows to pass the transactions object to the transactions and commands factory
+	const commands = {}
+	// this allows to pass the transactions and commands to the transactions and commands factories
+
+	const ctx = { sq: sagaQueries, transactions: allTxs, events, commands }
 
 	// commands
 	const commandsReducers = {}
 	const commandsTxs = {}
-	for (const [key, cmd] of Object.entries(
-		cmdsDef({ sq: sagaQueries, events, transactions: allTxs }),
-	)) {
+	for (const [key, cmd] of Object.entries(cmdsFactory(ctx))) {
 		if (typeof cmd === 'function') {
 			commandsTxs[key] = cmd
 			commandsReducers[key] = (state) => state
@@ -92,12 +91,14 @@ export default ({
 		initialState: allowReducedCommands ? initialState : undefined,
 		reducers: commandsReducers,
 	})
-	const commands = commandsSlice.actions
+	for (const [k, v] of Object.entries(commandsSlice.actions)) {
+		commands[k] = v
+	}
 
-	// transactions part 2
+	// transactions
 	for (const [k, t] of Object.entries({
 		...commandsTxs,
-		...transactions({ sq: sagaQueries, transactions: allTxs }),
+		...transactions(ctx),
 	})) {
 		allTxs[k] = t
 	}
@@ -107,10 +108,7 @@ export default ({
 		if (init) {
 			yield call(init)
 		}
-		yield all([
-			...effects({ sq: sagaQueries, transactions: allTxs }),
-			...makeDefaultCommandsSagas(commands, commandsTxs),
-		])
+		yield all([...effects(ctx), ...makeDefaultCommandsSagas(commands, commandsTxs)])
 	}
 
 	// reducer
@@ -122,6 +120,7 @@ export default ({
 
 	// ret
 	return {
+		name,
 		commands,
 		events,
 		queries,

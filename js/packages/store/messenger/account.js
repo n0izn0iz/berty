@@ -1,16 +1,12 @@
 import { put, select, call, take } from 'redux-saga/effects'
 import GoBridge from '@berty-tech/go-bridge'
+
 import { strToBuf, jsonToBuf } from '../utils'
 import createSagaSlice from '../createSagaSlice'
-
-import { commands as groupsCommands } from '../groups'
+import groups from '../groups'
 import * as protocol from '../protocol'
 import { events as mainSettingsEvents } from '../settings/main'
-import {
-	events as conversationEvents,
-	transactions as conversationTransactions,
-} from './conversation'
-
+import conversation from './conversation'
 import contact from './contact'
 
 const queries = {
@@ -21,21 +17,21 @@ const queries = {
 	},
 }
 
-const commands = ({ sq, events }) => ({
+const commandsFactory = ({ sq, events }) => ({
 	open: function* () {
-		const acc = yield* sq.get()
+		const acc = yield sq.get()
 		if (!acc) {
 			throw new Error("tried to open the account while it's undefined")
 		}
 
-		yield put(conversationEvents.appInit())
+		yield put(conversation.events.appInit())
 
-		yield put(groupsCommands.open())
-		yield take('GROUPS_OPENED')
+		yield put(groups.commands.open())
+		yield take(groups.events.opened)
 
 		const client = yield* protocol.client.getProtocolClient()
 
-		yield put(groupsCommands.subscribe({ publicKey: client.accountGroupPk, metadata: true }))
+		yield put(groups.commands.subscribe({ publicKey: client.accountGroupPk, metadata: true }))
 
 		yield call(protocol.transactions.client.instanceShareableBertyID, {
 			reset: false,
@@ -112,7 +108,7 @@ const commands = ({ sq, events }) => ({
 			let kind
 			if (data.bertyGroup) {
 				kind = 'group'
-				yield* conversationTransactions.join({ link: url })
+				yield* conversation.transactions.join({ link: url })
 			} else if (data.bertyId) {
 				kind = 'contact'
 				yield* contact.transactions.initiateRequest({ url })
@@ -134,7 +130,7 @@ const commands = ({ sq, events }) => ({
 	},
 })
 
-const events = {
+const eventsReducers = {
 	created: (state, { payload }) => {
 		if (!state) {
 			state = {
@@ -177,7 +173,7 @@ export default createSagaSlice({
 	name: 'account',
 	path: 'messenger',
 	initialState: null,
-	commands,
-	events,
+	commands: commandsFactory,
+	events: eventsReducers,
 	queries,
 })
