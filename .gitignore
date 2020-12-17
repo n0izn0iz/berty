@@ -37,3 +37,7 @@ benchmark_result.json
 /.build-info/
 /.build-artifacts/
 /build-profile.*
+
+# bazel
+
+/bazel-*

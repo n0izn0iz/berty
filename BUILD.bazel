@@ -1,0 +1,51 @@
+genrule(
+    name = "xcodegen",
+    srcs = ["js/ios/XcodeGen.version"],
+    outs = ["js/ios/vendor/xcodegen"],
+    cmd = """
+        set -euo pipefail
+        IFS=$$'\\n\\t'
+        set -o xtrace
+
+        mkdir -p xcodegen_dl
+        wget --no-verbose https://github.com/yonaskolb/XcodeGen/archive/`cat js/ios/XcodeGen.version`.zip -O xcodegen.zip
+        unzip -q xcodegen.zip -d xcodegen_dl
+        mkdir -p $@
+        cp -rf xcodegen_dl/*/* $@
+    """,
+    # TODO: add tools or use native bazel tools if possible
+)
+
+genrule(
+    name = "xcodeproj",
+    srcs = [
+        "//:xcodegen",
+        "go.sum",
+        "go.mod",
+        ".git",
+    ] + glob([
+        "js/ios/*.yaml",
+        "js/ios/Berty/Sources/**",
+    ]),
+    outs = [
+        "js/ios/Berty.xcodeproj",
+        "js/ios/Berty/main.jsbundle",
+        "js/ios/Berty/Info.plist",
+    ],
+    cmd = """
+        set -euo pipefail
+        IFS=$$'\\n\\t'
+        set -o xtrace
+
+        VERSION=`GOPATH=$$PWD/gopath GOCACHE=$$PWD/gocache go run -mod=readonly -modfile=go.mod github.com/mdomke/git-semver/v5`
+        cd js
+        mkdir -p ios/Berty
+        touch ios/Berty/main.jsbundle
+        IOS_BUNDLE_VERSION=`git rev-list HEAD | wc -l` \\
+        IOS_SHORT_BUNDLE_VERSION=`echo "$$VERSION" | cut -c2- | cut -f1 -d '-'` \\
+        IOS_COMMIT=`git rev-parse HEAD` \\
+        swift run --package-path ios/vendor/xcodegen xcodegen \\
+            --spec ios/berty.yaml \\
+    """,
+    # TODO: add tools or use native bazel tools if possible
+)

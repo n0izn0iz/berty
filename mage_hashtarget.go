@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/sha3"
 )
@@ -36,6 +38,79 @@ func htgtTargetPath(target string, sources []string, env []string, implem func()
 	}
 
 	return nil
+}
+
+func htgtHashLink(path string) (string, error) {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	return "l:" + real, nil
+}
+
+func htgtHashDir(path string) (string, error) {
+	fmt.Println("hashing", path)
+	start := time.Now()
+	defer func() {
+		end := time.Now()
+		fmt.Println("hashed", path, "in", end.Sub(start))
+	}()
+
+	man := path + "\n"
+	if err := filepath.Walk(path, func(subPath string, info os.FileInfo, err error) error {
+		oerr := error(nil)
+		if err == nil && info.IsDir() {
+			if info.Mode()&os.ModeSymlink != 0 {
+				oerr = filepath.SkipDir
+			} else {
+				man += subPath + " d:-\n"
+				return nil
+			}
+		}
+		h, err := htgt_Hash(subPath, info, err)
+		if err != nil {
+			return err
+		}
+		man += subPath + " " + h + "\n"
+		return oerr
+	}); err != nil {
+		return "", err
+	}
+
+	fmt.Println("man\n", man)
+
+	return "d:" + stringBase64Sha3(man), nil
+}
+
+func htgtHashFile(path string) (string, error) {
+	h, err := fileBase64Sha3(path)
+	if err != nil {
+		return "", err
+	}
+	return "f:" + h, nil
+}
+
+func htgt_Hash(path string, info os.FileInfo, err error) (string, error) {
+	// fmt.Println("hash", path)
+
+	if os.IsNotExist(err) {
+		return "void", nil
+	}
+	if err != nil {
+		return "error", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return htgtHashLink(path)
+	}
+	if info.IsDir() {
+		return htgtHashDir(path)
+	}
+	return htgtHashFile(path)
+}
+
+func htgtHash(path string) (string, error) {
+	info, err := os.Stat(path)
+	return htgt_Hash(path, info, err)
 }
 
 var errUpToDate = errors.New("up-to-date")
@@ -95,7 +170,7 @@ func htgtPath(target string, env []string, srcs ...string) (bool, error) {
 		return true, err
 	}
 
-	newManif, err := htgtManifestGenerate(target, env, srcs, nil, false)
+	newManif, err := htgtManifestGenerate([]string{target}, env, srcs)
 	if err != nil {
 		return true, err
 	}
@@ -128,7 +203,7 @@ func htgtManifestWriteGlob(target string, env []string, globs ...string) error {
 }
 
 func htgtManifestWritePath(target string, env []string, srcs ...string) error {
-	manif, err := htgtManifestGenerate(target, env, srcs, nil, false)
+	manif, err := htgtManifestGenerate([]string{target}, env, srcs)
 	if err != nil {
 		return err
 	}
@@ -160,83 +235,66 @@ func stringBase64Sha3(str string) string {
 	return base64.StdEncoding.EncodeToString(h[:])
 }
 
-func htgtManifestGenerate(target string, env []string, srcs []string, injected map[string]string, cacheMode bool) (string, error) {
-	targetInfo, err := os.Stat(target)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
+func htgtManifestGenerate(outputs []string, env []string, srcs []string) (string, error) {
+	manifestLines := []string(nil)
 
-	var sum string
-	if os.IsNotExist(err) {
-		sum = "void"
-	} else if targetInfo.IsDir() {
-		sum = "dir"
-	} else {
-		sum, err = fileBase64Sha3(target)
-		if err != nil {
-			return "", err
+	if len(outputs) > 0 {
+		manifestLines = append(manifestLines, "Outputs:", "")
+		sums := make(map[string]string)
+		for _, src := range outputs {
+			cleanSrc := path.Clean(src)
+			s, err := htgtHash(cleanSrc)
+			if err != nil {
+				return "", err
+			}
+			sums[cleanSrc] = s
+		}
+
+		sumsKeys := strdictKeys(sums)
+		sort.Strings(sumsKeys)
+		for _, k := range sumsKeys {
+			manifestLines = append(manifestLines, k+" "+sums[k])
 		}
 	}
 
-	manifestLines := []string(nil)
-	if !cacheMode {
-		manifestLines = append(manifestLines, "Output:", "", target, sum, "")
-	}
-
 	if len(env) > 0 {
+		if len(outputs) > 0 {
+			manifestLines = append(manifestLines, "")
+		}
+
 		manifestLines = append(manifestLines, "Environment:", "")
+		sort.Strings(env)
 		for _, key := range env {
 			value := os.Getenv(key)
 			manifestLines = append(manifestLines, key+"="+value)
 		}
-		manifestLines = append(manifestLines, "")
 	}
 
-	manifestLines = append(manifestLines, "Sources:", "")
-	//srcs = removeDuplicatesUnordered(srcs)
-	//sort.Strings(srcs)
-	sums := make(map[string]string)
-	for _, src := range srcs {
-		if _, err := os.Stat(src); os.IsNotExist(err) {
-			sums[path.Clean(src)] = "void"
-			//manifestLines = append(manifestLines, "void "+path.Clean(src))
-			continue
+	if len(srcs) > 0 {
+		if len(env) > 0 || len(outputs) > 0 {
+			manifestLines = append(manifestLines, "")
 		}
 
-		if err := filepath.Walk(src, func(p string, info os.FileInfo, err error) error {
+		manifestLines = append(manifestLines, "Sources:", "")
+
+		sums := make(map[string]string)
+		for _, src := range srcs {
+			cleanSrc := path.Clean(src)
+			s, err := htgtHash(cleanSrc)
 			if err != nil {
-				return err
+				return "", err
 			}
+			sums[cleanSrc] = s
+		}
 
-			if info.IsDir() {
-				return nil
-			}
-
-			sum, err := fileBase64Sha3(p)
-			if err != nil {
-				return err
-			}
-
-			sums[path.Clean(p)] = sum
-			//manifestLines = append(manifestLines, sum+" "+p)
-
-			return nil
-		}); err != nil {
-			return "", err
+		sumsKeys := strdictKeys(sums)
+		sort.Strings(sumsKeys)
+		for _, k := range sumsKeys {
+			manifestLines = append(manifestLines, k+" "+sums[k])
 		}
 	}
 
-	for k, v := range injected {
-		sums[path.Clean(k)] = v
-	}
-
-	sumsKeys := strdictKeys(sums)
-	sort.Strings(sumsKeys)
-	for _, k := range sumsKeys {
-		manifestLines = append(manifestLines, sums[k]+" "+k)
-	}
-
-	return strings.Join(manifestLines, "\n"), nil
+	return strings.Join(manifestLines, "\n") + "\n", nil
 }
 
 func strdictKeys(sd map[string]string) []string {

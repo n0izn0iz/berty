@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -27,6 +28,7 @@ type Rule interface {
 	OutputString() (string, error)
 	Name() string
 	Phony() bool
+	Outputs() []string
 }
 
 // toolDef
@@ -106,6 +108,10 @@ func (t *mtarget) Phony() bool {
 	return t.def.phony
 }
 
+func (t *mtarget) Outputs() []string {
+	return append([]string{t.def.output}, t.def.artifacts...)
+}
+
 var _ Rule = (*mtarget)(nil)
 
 // mtool
@@ -138,6 +144,10 @@ func (t *mtool) Name() string {
 
 func (t *mtool) Phony() bool {
 	return true
+}
+
+func (t *mtool) Outputs() []string {
+	return []string{t.InfoPath()}
 }
 
 var _ Rule = (*mtool)(nil)
@@ -205,17 +215,7 @@ func (t *targetDef) outputStringSliceWrite(args ...string) error {
 }
 
 func (t *targetDef) cacheManifest() (string, error) {
-	allSources := t.sources
-	injected := make(map[string]string)
-	for _, mdep := range t.mdeps {
-		depMan, err := mdep.CacheManifest()
-		if err != nil {
-			return "", err
-		}
-		injected[mdep.InfoPath()] = stringBase64Sha3(depMan)
-	}
-
-	return htgtManifestGenerate(t.output, t.env, allSources, injected, true)
+	return "", errors.New("deprecated")
 }
 
 func (t *targetDef) runExecToOutput(name string, arg ...string) error {
@@ -248,7 +248,7 @@ func (t *targetDef) runTarget(implem func(*implemHelper) error) error {
 	allSources := t.sources
 	for _, mdep := range t.mdeps {
 		allDeps = append(allDeps, mdep.Implem())
-		allSources = append(allSources, mdep.InfoPath())
+		allSources = append(allSources, mdep.Outputs()...)
 		if mdep.Phony() {
 			phonyDeps = append(phonyDeps, mdep.Implem())
 		} else {
@@ -286,7 +286,7 @@ func (t *targetDef) runTarget(implem func(*implemHelper) error) error {
 			//fmt.Printf("✅ %s: built\n", t.name)
 		}
 
-		m, err := htgtManifestGenerate(t.output, t.env, srcs, nil, false)
+		m, err := htgtManifestGenerate([]string{t.output}, t.env, srcs)
 		if err != nil {
 			return err
 		}
